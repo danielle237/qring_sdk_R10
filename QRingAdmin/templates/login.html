@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QRing Admin · Connexion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0b1020; --panel:#121a31; --line:#223055; --text:#e8ecf8; --muted:#8b96b8; --accent:#5b7cfa; --accent2:#22c1a4; --err:#ff6b7a; }
+  * { box-sizing:border-box; margin:0; padding:0 }
+  body { min-height:100vh; display:grid; place-items:center; font-family:Inter,system-ui,sans-serif; color:var(--text);
+         background: radial-gradient(1200px 600px at 20% -10%, rgba(91,124,250,.25), transparent 60%),
+                     radial-gradient(900px 500px at 110% 110%, rgba(34,193,164,.18), transparent 60%), var(--bg); padding:16px }
+  .card { width:100%; max-width:380px; background:rgba(18,26,49,.85); backdrop-filter: blur(12px); border:1px solid var(--line);
+          border-radius:22px; padding:34px 30px; box-shadow:0 30px 80px rgba(0,0,0,.45) }
+  .logo { display:flex; align-items:center; gap:12px; margin-bottom:26px }
+  .mark { width:44px; height:44px; border-radius:14px; background:linear-gradient(135deg,var(--accent),var(--accent2)); display:grid; place-items:center; box-shadow:0 8px 24px rgba(91,124,250,.4) }
+  .mark span { width:20px; height:20px; border-radius:50%; border:4px solid #fff }
+  h1 { font-size:20px; font-weight:800; letter-spacing:-.02em }
+  .sub { color:var(--muted); font-size:13px; margin-top:2px }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:600 }
+  input { width:100%; padding:13px 14px; border-radius:12px; border:1px solid var(--line); background:#0d1427; color:var(--text); font-size:15px; outline:none; transition:.15s }
+  input:focus { border-color:var(--accent); box-shadow:0 0 0 4px rgba(91,124,250,.18) }
+  button { width:100%; margin-top:18px; padding:13px; border:0; border-radius:12px; background:linear-gradient(135deg,var(--accent),#7a5bfa); color:#fff; font-weight:700; font-size:15px; cursor:pointer; box-shadow:0 10px 26px rgba(91,124,250,.35) }
+  button:hover { filter:brightness(1.08) }
+  .err { margin-top:14px; color:var(--err); font-size:13px; text-align:center }
+</style>
+</head>
+<body>
+  <form class="card" method="post">
+    <div class="logo"><div class="mark"><span></span></div><div><h1>QRing Admin</h1><div class="sub">Supervision des bagues connectées</div></div></div>
+    <label for="p">Mot de passe</label>
+    <input id="p" type="password" name="password" autofocus autocomplete="current-password">
+    <button type="submit">Se connecter</button>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  </form>
+</body>
+</html>

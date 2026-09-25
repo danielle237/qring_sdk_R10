@@ -1,0 +1,43 @@
+# Built files
+*.apk
+*.ap_
+*.aab
+
+# Gradle 缓存和构建输出
+.gradle/
+build/
+captures/
+outputs/
+
+# Local configuration files
+*.iml
+.idea/
+.DS_Store
+*.swp
+
+# 忽略本地属性文件（如 API 密钥）
+local.properties
+
+# 日志和临时文件
+*.log
+*.tmp
+
+# Keystore 文件（切勿提交！）
+#*.jks
+*.keystore
+
+# Firebase 和 Google 服务配置（根据情况忽略）
+google-services.json
+GoogleService-Info.plist
+
+# 其他系统或 IDE 文件
+**/.svn/
+**/__pycache__/
+
+# ProGuard/R8 映射文件
+/proguard/*
+/app/build/outputs/mapping/
+*/mapping.txt
+*.map
+mapping/
+mapping.txt

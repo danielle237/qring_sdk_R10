@@ -1,0 +1,6 @@
+-keep class com.oudmon.** { *; }
+-keep class com.realsil.** { *; }
+-keep class org.eclipse.paho.** { *; }
+-dontwarn com.oudmon.**
+-dontwarn com.realsil.**
+-dontwarn org.eclipse.paho.**

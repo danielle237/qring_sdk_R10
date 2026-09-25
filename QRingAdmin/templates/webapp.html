@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QRing · Ma bague</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b1020;--panel:#131a31;--panel2:#1a2340;--line:#26304f;--text:#e9edf8;--muted:#8d98bd;--faint:#5f6a8f;
+  --accent:#5b7cfa;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--hr:#f43f5e;--spo2:#38bdf8;--hrv:#a78bfa;--temp:#fb923c;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){--bg:#f3f5fb;--panel:#fff;--panel2:#f1f4fb;--line:#e2e7f3;--text:#141a2e;--muted:#5f6a8f;--faint:#9aa3c0}
+}
+:root[data-theme="light"]{--bg:#f3f5fb;--panel:#fff;--panel2:#f1f4fb;--line:#e2e7f3;--text:#141a2e;--muted:#5f6a8f;--faint:#9aa3c0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,sans-serif;padding:16px 16px 40px;min-height:100vh;-webkit-font-smoothing:antialiased}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}
+.hero{background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 22%,var(--panel)),var(--panel));}
+.hero h1{font-size:21px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+.hero .sub{color:var(--muted);font-size:12px;margin-top:2px;font-family:ui-monospace,Menlo,monospace}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:30px;font-weight:700;font-size:13px;margin-top:12px;
+  background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c)}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--c);box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 25%,transparent)}
+.pill small{font-weight:500;opacity:.8}
+.meta{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;color:var(--muted);font-size:13px}
+.meta b{color:var(--text);font-weight:600}
+h2{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+h2 span{text-transform:none;letter-spacing:0;font-weight:500;color:var(--faint)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{background:var(--panel2);border-radius:14px;padding:12px;position:relative;overflow:hidden}
+.tile::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--c)}
+.tile .l{font-size:12px;color:var(--muted);font-weight:600}
+.tile .v{font-size:26px;font-weight:800;letter-spacing:-.03em;margin-top:2px}
+.tile .v small{font-size:13px;font-weight:600;color:var(--muted);margin-left:3px}
+.tile .t{font-size:11.5px;color:var(--faint);margin-top:2px}
+.summary{display:flex;flex-wrap:wrap;gap:8px 14px;font-weight:600}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;border:0;cursor:pointer}
+.mbtn{padding:14px 10px;border-radius:14px;background:var(--panel2);color:var(--text);font-weight:700;font-size:14px;border:1px solid var(--line);transition:.15s}
+.mbtn:active{transform:scale(.97)}
+.mbtn:disabled{opacity:.45;cursor:default}
+.status{border-left:4px solid var(--c,var(--accent));display:none;position:relative}
+.status.on{display:block}
+.status .prev{color:var(--muted);font-size:12.5px;margin-top:8px}
+.status .x{position:absolute;top:10px;right:10px;background:var(--panel2);color:var(--muted);border-radius:10px;padding:4px 9px;font-size:12px;font-weight:600}
+.status b{display:block;font-size:15px}
+.status .d{color:var(--muted);font-size:12.5px;margin-top:3px}
+.bar{height:6px;border-radius:6px;background:var(--line);margin-top:10px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--c,var(--accent));width:0;transition:width .8s linear}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.tab{padding:7px 12px;border-radius:20px;background:var(--panel2);color:var(--muted);font-weight:600;font-size:12.5px;border:1px solid var(--line)}
+.tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+svg{width:100%;height:150px;display:block}
+.stats{color:var(--muted);font-size:12px;margin:6px 0 8px}
+.rows{display:flex;flex-direction:column}
+.row{display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-top:1px solid var(--line);font-size:13px}
+.row .w{color:var(--muted)}
+.row .x{font-weight:700}
+.more{width:100%;margin-top:10px;padding:11px;border-radius:12px;background:var(--panel2);color:var(--text);font-weight:600;border:1px solid var(--line)}
+.center{text-align:center;color:var(--muted);padding:40px 10px}
+.center b{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
+.foot{text-align:center;color:var(--faint);font-size:11.5px}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="loading" class="card center"><b>Chargement… · Loading…</b>Vérification Telegram</div>
+  <div id="error" class="card center hidden"></div>
+
+  <div id="app" class="hidden">
+    <div class="wrap">
+      <div class="card hero">
+        <h1>💍 <span id="name"></span></h1>
+        <div class="sub" id="sub"></div>
+        <div id="presence"></div>
+        <div class="meta"><span>📺 <b id="tv">—</b></span><span>🔋 <b id="batt">—</b></span><span>🕒 <b id="status">—</b></span></div>
+      </div>
+
+      <div class="card status" id="mstatus"><button class="x hidden" id="mclose">✕ Fermer · Close</button>
+        <b id="mtitle"></b><div class="d" id="mdetail"></div><div class="bar" id="mbarw"><i id="mbar"></i></div>
+        <div class="prev" id="mprev"></div></div>
+
+      <div class="card">
+        <h2>📊 Dernières mesures <span>· Latest readings</span></h2>
+        <div class="grid" id="tiles"></div>
+      </div>
+
+      <div class="card" id="summaryCard">
+        <h2>✨ Résumé <span>· Summary <span id="sumPeriod"></span></span></h2>
+        <div class="summary" id="summary"></div>
+      </div>
+
+      <div class="card" id="measureCard">
+        <h2>⚡ Mesurer <span>· Measure</span></h2>
+        <div class="btns" id="btns"></div>
+      </div>
+
+      <div class="card" id="histCard">
+        <h2>📈 Historique <span>· History</span></h2>
+        <div class="tabs" id="htabs"></div>
+        <div class="tabs" id="hperiods"></div>
+        <svg id="chart" viewBox="0 0 600 150" preserveAspectRatio="none"></svg>
+        <div class="center hidden" id="nochart" style="padding:30px 0">Aucune donnée · No data</div>
+        <div class="stats" id="hstats"></div>
+        <div class="rows" id="hrows"></div>
+        <button class="more hidden" id="hmore">➕ Plus · More</button>
+      </div>
+
+      <div class="foot">QRing · <span id="foot"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const RING = {{ ring_key|tojson }};
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.dataset.theme = tg.colorScheme; }
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const M = {
+  hr:   { icon:'❤️', fr:'Rythme cardiaque', en:'Heart rate', unit:'bpm', c:'var(--hr)', btn:'❤️ HR' },
+  spo2: { icon:'🫁', fr:'SpO₂', en:'Blood oxygen', unit:'%', c:'var(--spo2)', btn:'🫁 SpO₂' },
+  hrv:  { icon:'💓', fr:'HRV', en:'HRV', unit:'ms', c:'var(--hrv)', btn:'💓 HRV' },
+  temp: { icon:'🌡', fr:'Température', en:'Temperature', unit:'°C', c:'var(--temp)', btn:'🌡 Temp.' },
+};
+const ERR = {
+  ring_removed:['🖐 Bague retirée — veuillez porter la bague','Ring removed — please wear the ring','var(--warn)'],
+  ring_disconnected:['🟡 Hors portée','Out of range','var(--warn)'],
+  gateway_offline:['⚫ TV hors ligne','TV offline','var(--err)'],
+  unknown:['⚫ Aucune TV ne signale cette bague','No TV reports this ring','var(--err)'],
+  timeout:['⏱ Pas de résultat','No result','var(--err)'],
+  measure_failed:['❌ Mesure échouée','Measurement failed','var(--err)'],
+  invalid_value:['❌ Valeur incohérente','Invalid value','var(--err)'],
+  not_supported:['❌ Non supportée par cette bague','Not supported','var(--err)'],
+  busy:['🟠 Bague occupée','Ring busy','var(--warn)'],
+  cancelled:['⏹ Mesure annulée','Cancelled','var(--muted)'],
+};
+
+let S = { token:null, snap:null, meas:null, hkey:null, hours:24, hrows:[], hshown:20 };
+
+const fr = v => v == null ? '—' : String(Math.round(Number(v)*10)/10).replace('.', ',');
+const hm = (ts, sec) => ts ? new Date(ts*1000).toLocaleTimeString('fr-FR', sec ? {} : {hour:'2-digit', minute:'2-digit'}) : '—';
+function when(ts){
+  if (!ts) return '—';
+  const d = new Date(ts*1000), t = new Date(), y = new Date(); y.setDate(t.getDate()-1);
+  if (d.toDateString() === t.toDateString()) return hm(ts);
+  if (d.toDateString() === y.toDateString()) return 'hier · yday ' + hm(ts);
+  return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) + ' ' + hm(ts);
+}
+
+async function api(path, body){
+  const r = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(Object.assign({token:S.token}, body||{})) });
+  let j = {}; try { j = await r.json(); } catch(e){}
+  j._code = r.status; return j;
+}
+function fatal(title, text){
+  $('#loading').classList.add('hidden'); $('#app').classList.add('hidden');
+  const e = $('#error'); e.classList.remove('hidden'); e.innerHTML = `<b>${esc(title)}</b>${esc(text||'')}`;
+}
+
+// ------------------------------------------------------------------ affichage
+function presence(r){
+  if (!r) return ['var(--muted)','Aucune TV ne signale cette bague','No TV reports this ring'];
+  if (!r.online) return ['var(--err)','TV hors ligne','TV offline'];
+  if (r.unbound || r.ring === 'unbound') return ['var(--muted)','Bague non associée','Ring not paired'];
+  if (r.ring !== 'connected') return ['var(--warn)','Hors portée','Out of range'];
+  if (r.worn === false) return ['var(--warn)','Bague retirée','Ring removed'];
+  return ['var(--ok)','Connectée · Portée','Connected · Worn'];
+}
+function latestOf(k){
+  const s = S.snap, a = s.ring && s.ring.values && s.ring.values[k], b = s.latest && s.latest[k];
+  const c = [a, b].filter(x => x && x.data && x.data.value != null);
+  return c.sort((x, y) => ((y.ts||0) - (x.ts||0)) || ((y.dur != null) - (x.dur != null)))[0];
+}
+function render(){
+  const s = S.snap, r = s.ring;
+  $('#name').textContent = s.info.name;
+  $('#sub').textContent = s.info.mac + (s.info.model ? ' · ' + s.info.model : '');
+  const [c, f, e] = presence(r);
+  $('#presence').innerHTML = `<span class="pill" style="--c:${c}"><i></i>${esc(f)} <small>| ${esc(e)}</small></span>`;
+  $('#tv').textContent = r ? (r.deviceName || r.gateway || '—') : '—';
+  $('#batt').textContent = r && r.battery != null ? r.battery + ' %' + (r.charging ? ' ⚡' : '') : '—';
+  $('#status').textContent = r && r.statusTs ? hm(r.statusTs, true) : '—';
+  $('#foot').textContent = (s.info.user ? s.info.user + ' · ' : '') + 'mis à jour · updated ' + hm(s.now, true);
+
+  const vis = s.rights.visible;
+  $('#tiles').innerHTML = vis.map(k => {
+    const v = latestOf(k), m = M[k];
+    return `<div class="tile" style="--c:${m.c}"><div class="l">${m.icon} ${m.fr}${m.en !== m.fr ? ` <span style="font-weight:500;color:var(--faint)">· ${m.en}</span>` : ''}</div>
+      <div class="v">${v ? fr(v.data.value) : '—'}<small>${v ? m.unit : ''}</small></div>
+      <div class="t">${v ? when(v.ts) + (v.dur != null ? ' · ⏱ ' + v.dur + ' s' : '') : 'Aucune mesure · No reading'}</div></div>`;
+  }).join('');
+  const sum = vis.map(k => [k, latestOf(k)]).filter(x => x[1]);
+  $('#summaryCard').classList.toggle('hidden', !sum.length || !!S.meas);
+  $('#summary').innerHTML = sum.map(([k, v]) => `<span>${M[k].icon} ${fr(v.data.value)} ${M[k].unit}</span>`).join('');
+  const st = sum.map(x => x[1].ts).filter(Boolean).sort((a, b) => a - b);
+  let period = '';
+  if (st.length) {
+    const d0 = new Date(st[0]*1000), d1 = new Date(st.at(-1)*1000), dm = d => d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});
+    period = d0.toDateString() === d1.toDateString()
+      ? d1.toLocaleDateString('fr-FR') + ' ' + hm(st.at(-1))
+      : `du ${dm(d0)} ${hm(st[0])} au ${dm(d1)} ${hm(st.at(-1))}`;
+  }
+  $('#sumPeriod').textContent = period ? '— ' + period : '';
+
+  const allowed = s.rights.measures;
+  $('#measureCard').classList.toggle('hidden', !allowed.length);
+  if ($('#btns').dataset.k !== allowed.join()) {
+    $('#btns').dataset.k = allowed.join();
+    $('#btns').innerHTML = allowed.map(k => `<button class="mbtn" data-k="${k}">${M[k].btn}</button>`).join('');
+    document.querySelectorAll('.mbtn').forEach(b => b.onclick = () => measure(b.dataset.k));
+  }
+  renderMeasure();
+
+  $('#histCard').classList.toggle('hidden', !s.rights.history || !vis.length);
+  if (s.rights.history && vis.length && !S.hkey) { S.hkey = vis[0]; renderTabs(); loadHistory(); }
+}
+
+// ------------------------------------------------------------------ mesure : demande → en cours → résultat
+async function measure(k){
+  if (S.meas && !S.meas.final) return;
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+  const before = latestOf(k);
+  const res = await api('/api/webapp/cmd', { cmd:k });
+  const t0 = Math.floor(Date.now()/1000);
+  if (res.busy) { S.meas = { cmd:k, t0, final:true, phase:'busy_other', other:res.busy }; }
+  else if (!res.ok) { S.meas = { cmd:k, t0, final:true, phase: res.reason || (res._code === 403 ? 'forbidden' : 'measure_failed'), msg:res.error }; }
+  else S.meas = { cmd:k, t0, reqId:res.reqId, shared:!!res.already, phase:'requested' };
+  S.meas.prev = before ? { v: before.data.value, ts: before.ts } : null;
+  render(); refresh();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function match(x, m){
+  if (!x) return false;
+  if (m.reqId && x.reqId) return x.reqId === m.reqId;
+  return (x.ts || 0) >= m.t0 - 1;
+}
+function outcome(){
+  const m = S.meas, s = S.snap, r = s.ring, now = s.now;
+  if (m.final) return;
+  const lim = (s.limits[m.cmd] || 90);
+  if (!r) { Object.assign(m, {final:true, phase:'unknown'}); return; }
+  const v = r.values && r.values[m.cmd], e = r.errors && r.errors[m.cmd], p = r.pending && r.pending[m.cmd];
+  if (match(v, m)) { Object.assign(m, {final:true, phase:'ok', result:v}); return; }
+  if (match(e, m)) { Object.assign(m, {final:true, phase:e.code || 'measure_failed', result:e}); return; }
+  if (!r.online) { Object.assign(m, {final:true, phase:'gateway_offline'}); return; }
+  if (r.ring !== 'connected') { Object.assign(m, {final:true, phase:'ring_disconnected'}); return; }
+  if (p && (!m.reqId || !p.reqId || p.reqId === m.reqId)) {
+    if (p.confirmed) { m.phase = 'measuring'; m.started = p.since; m.elapsed = Math.max(0, now - p.since); }
+    else m.phase = 'requested';
+  } else if (now - m.t0 > 15) { Object.assign(m, {final:true, phase:'timeout'}); return; }
+  if (now - m.t0 > lim + 30) Object.assign(m, {final:true, phase:'timeout'});
+}
+function renderMeasure(){
+  const box = $('#mstatus'), m = S.meas;
+  document.querySelectorAll('.mbtn').forEach(b => b.disabled = !!(m && !m.final));
+  if (!m) { box.classList.remove('on'); return; }
+  $('#mclose').classList.toggle('hidden', !m.final || m.phase === 'requested' || m.phase === 'measuring');
+  outcome();
+  const info = M[m.cmd], lim = S.snap.limits[m.cmd] || 90;
+  let c = info.c, title = '', detail = '', pct = 0, bar = true;
+  if (m.phase === 'requested') { title = `⏳ ${info.fr} — demande envoyée`; detail = 'Request sent to the TV…'; pct = 3; }
+  else if (m.phase === 'measuring') {
+    title = `🟠 ${info.fr} — mesure en cours · Measuring`;
+    detail = `Début · Start ${hm(m.started, true)} · ⏱ ${m.elapsed} s / ${lim} s max` + (m.shared ? ' · 👥 résultat partagé' : '');
+    pct = Math.min(100, m.elapsed / lim * 100);
+  } else if (m.phase === 'ok') {
+    const x = m.result; bar = false; c = 'var(--ok)';
+    title = `✅ ${info.fr} : ${fr(x.data.value)} ${info.unit}`;
+    detail = `🕒 ${hm(x.started || m.t0, true)} → ${hm(x.ts, true)} · ⏱ ${x.dur != null ? x.dur : Math.max(0, x.ts - (x.started||m.t0))} s`;
+  } else if (m.phase === 'busy_other') {
+    bar = false; c = 'var(--warn)';
+    title = `🟠 Mesure ${M[m.other] ? M[m.other].fr : m.other.toUpperCase()} en cours`;
+    detail = 'Another measurement is running — réessaie à la fin · try again when it ends';
+  } else if (m.phase === 'forbidden') { bar = false; c = 'var(--err)'; title = '⛔ Mesure non autorisée'; detail = 'Measurement not allowed'; }
+  else {
+    bar = false; const e = ERR[m.phase] || ['❌ ' + m.phase, m.msg || '', 'var(--err)']; c = e[2];
+    title = e[0]; detail = e[1] + ' · ' + hm((m.result && m.result.ts) || S.snap.now, true);
+  }
+  box.style.setProperty('--c', c); box.classList.add('on');
+  $('#mtitle').textContent = title; $('#mdetail').textContent = detail;
+  $('#mbarw').classList.toggle('hidden', !bar); $('#mbar').style.width = pct + '%';
+  const failed = m.phase !== 'ok' && m.phase !== 'requested' && m.phase !== 'measuring';
+  $('#mprev').textContent = m.prev ? `↩️ ${failed ? 'Dernière valeur · Last value' : 'Précédente · Previous'} : ${fr(m.prev.v)} ${info.unit} · ${when(m.prev.ts)}` : '';
+  if (m.final && m.phase === 'ok' && !m.reloaded) { m.reloaded = true; setTimeout(loadHistory, 2500); }
+}
+
+// ------------------------------------------------------------------ historique (base de données)
+const PERIODS = [[24,'24 h'],[168,'7 j · 7 d'],[720,'30 j · 30 d']];
+function renderTabs(){
+  $('#htabs').innerHTML = S.snap.rights.visible.map(k => `<button class="tab ${k===S.hkey?'on':''}" data-k="${k}">${M[k].btn}</button>`).join('');
+  $('#hperiods').innerHTML = PERIODS.map(([h, l]) => `<button class="tab ${h===S.hours?'on':''}" data-h="${h}">${l}</button>`).join('');
+  document.querySelectorAll('#htabs .tab').forEach(b => b.onclick = () => { S.hkey = b.dataset.k; renderTabs(); loadHistory(); });
+  document.querySelectorAll('#hperiods .tab').forEach(b => b.onclick = () => { S.hours = +b.dataset.h; renderTabs(); loadHistory(); });
+}
+async function loadHistory(){
+  if (!S.hkey) return;
+  const res = await api('/api/webapp/history', { type:S.hkey, hours:S.hours });
+  S.hrows = res.ok ? res.rows : []; S.hshown = 20; renderHistory();
+}
+function failText(x){
+  const r = String(x.reason || '').toLowerCase(), s = String(x.status || '').toLowerCase();
+  if (r.includes('removed')) return '🖐 bague retirée · removed';
+  if (s.includes('portee') || r.includes('range') || r.includes('disconnected')) return '🟡 hors portée · out of range';
+  if (r === 'timeout') return '⏱ pas de résultat · no result';
+  return '❌ ' + (r || s || 'échec');
+}
+function renderHistory(){
+  const k = S.hkey, m = M[k], rows = S.hrows;
+  const pts = rows.filter(x => x.status === 'ok' && x.value != null).map(x => [x.ts, Number(x.value)]).reverse();
+  const svg = $('#chart');
+  svg.classList.toggle('hidden', !pts.length); $('#nochart').classList.toggle('hidden', !!pts.length);
+  if (!pts.length) { svg.innerHTML = ''; $('#hstats').textContent = rows.length ? `${rows.length} tentatives · attempts` : ''; }
+  else {
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), pad = Math.max(1, (y1-y0)*.2);
+    const X = x => 8 + (x1 === x0 ? 292 : (x - x0) / (x1 - x0) * 584), Y = y => 142 - (y - (y0-pad)) / ((y1+pad) - (y0-pad)) * 134;
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ');
+    svg.innerHTML = `<path d="${d} L${X(xs.at(-1))},150 L${X(xs[0])},150 Z" fill="${m.c}" opacity=".14"/>
+      <path d="${d}" fill="none" stroke="${m.c}" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` +
+      pts.map(p => `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3" fill="${m.c}"/>`).join('');
+    const avg = ys.reduce((a, b) => a + b, 0) / ys.length;
+    $('#hstats').textContent = `${rows.length} mesures · min ${fr(y0)} · moy ${fr(avg)} · max ${fr(y1)} ${m.unit}`;
+  }
+  $('#hrows').innerHTML = rows.slice(0, S.hshown).map(x => `<div class="row"><span class="w">${when(x.ts)}</span>
+    <span class="x">${x.status === 'ok' ? fr(x.value) + ' ' + m.unit + (x.dur != null ? ` <span class="w">· ⏱ ${x.dur} s</span>` : '') : failText(x)}</span></div>`).join('')
+    || '<div class="row"><span class="w">Aucune mesure sur cette période · No readings in this period</span></div>';
+  $('#hmore').classList.toggle('hidden', rows.length <= S.hshown);
+}
+$('#hmore').onclick = () => { S.hshown += 20; renderHistory(); };
+$('#mclose').onclick = () => { S.meas = null; render(); };
+
+// ------------------------------------------------------------------ session
+async function refresh(){
+  if (!S.token) return;
+  const res = await api('/api/webapp/data');
+  if (res._code === 403) return fatal('⛔ Accès retiré', 'Cette bague ne t\'est plus affectée · Access removed');
+  if (res.ok) { S.snap = res; render(); }
+}
+async function start(){
+  if (!tg || !tg.initData) return fatal('Ouvre cette page depuis le bot Telegram', 'Open this page from the Telegram bot (🌐 Web App button).');
+  const res = await api('/api/webapp/open', { ring:RING, initData:tg.initData });
+  if (!res.ok) return fatal(res._code === 403 ? '⛔ Accès refusé · Access denied' : '⚠️ Erreur · Error', res.error);
+  S.token = res.token; S.snap = res;
+  $('#loading').classList.add('hidden'); $('#app').classList.remove('hidden');
+  render();
+  setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+}
+function closeSession(){
+  if (S.token && navigator.sendBeacon) navigator.sendBeacon('/api/webapp/close', JSON.stringify({ token:S.token }));
+}
+window.addEventListener('pagehide', closeSession);
+if (tg) tg.onEvent && tg.onEvent('viewportChanged', () => {});
+start();
+</script>
+</body>
+</html>

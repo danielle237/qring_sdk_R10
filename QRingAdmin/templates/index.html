@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QRing Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b1020; --side:#0e1530; --panel:#121a31; --panel2:#17213d; --line:#223055; --line2:#2b3a63;
+  --text:#e8ecf8; --muted:#8b96b8; --faint:#5d6889;
+  --accent:#5b7cfa; --accent2:#22c1a4; --ok:#2fd08a; --warn:#ffb54a; --err:#ff6b7a; --info:#5bb8fa;
+  --hr:#ff5d7a; --spo2:#40c4ff; --temp:#ff9f4a; --bp:#b68cff; --hrv:#2fd08a; --stress:#ffd23f; --steps:#22c1a4;
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#f3f5fb; --side:#0f1733; --panel:#ffffff; --panel2:#f6f8fd; --line:#e3e8f4; --line2:#d5dcee;
+  --text:#18203a; --muted:#65708f; --faint:#9aa4c0; --shadow:0 8px 24px rgba(20,30,70,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;display:flex;overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+
+/* ------------------------------------------------ sidebar */
+.side{width:232px;flex:none;background:var(--side);color:#dfe5f7;display:flex;flex-direction:column;padding:20px 14px;border-right:1px solid rgba(255,255,255,.05)}
+.brand{display:flex;align-items:center;gap:11px;padding:0 8px 22px}
+.mark{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;box-shadow:0 8px 22px rgba(91,124,250,.45)}
+.mark span{width:17px;height:17px;border-radius:50%;border:3.5px solid #fff}
+.brand b{font-size:16px;font-weight:800;letter-spacing:-.02em;display:block}
+.brand small{font-size:11px;color:#8391bd}
+.nav a{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;color:#a8b3d6;text-decoration:none;font-weight:600;font-size:13.5px;margin-bottom:3px;cursor:pointer;transition:.15s}
+.nav a:hover{background:rgba(255,255,255,.05);color:#fff}
+.nav a.on{background:linear-gradient(135deg,rgba(91,124,250,.28),rgba(91,124,250,.12));color:#fff;box-shadow:inset 0 0 0 1px rgba(91,124,250,.35)}
+.nav svg{width:18px;height:18px;flex:none}
+.nav .count{margin-left:auto;font-size:11px;background:rgba(255,255,255,.08);padding:2px 7px;border-radius:20px}
+.nav .count.alert{background:var(--err);color:#fff}
+.side .spacer{flex:1}
+.broker{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:11px 12px;font-size:12px}
+.broker .l{color:#8391bd;font-size:11px;margin-bottom:4px}
+.side .foot{display:flex;gap:8px;margin-top:10px}
+.side .foot button,.side .foot a{flex:1;text-align:center;font-size:12px;padding:8px;border-radius:10px;background:rgba(255,255,255,.05);color:#b9c3e6;border:0;text-decoration:none}
+
+/* ------------------------------------------------ main */
+main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{display:flex;align-items:center;gap:14px;padding:18px 26px;border-bottom:1px solid var(--line);background:var(--panel)}
+.top h1{font-size:20px;font-weight:800;letter-spacing:-.02em}
+.top .sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:0 12px;width:280px}
+.search input{border:0;background:transparent;color:var(--text);padding:10px 0;outline:none;width:100%;font-family:inherit;font-size:13px}
+.clock{color:var(--muted);font-size:12.5px;min-width:64px;text-align:right}
+.content{flex:1;overflow:auto;padding:22px 26px 40px}
+.view{display:none}.view.on{display:block}
+
+/* ------------------------------------------------ KPI */
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:20px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi .l{color:var(--muted);font-size:12px;font-weight:600}
+.kpi .v{font-size:30px;font-weight:800;margin-top:6px;letter-spacing:-.03em}
+.kpi .s{color:var(--faint);font-size:11.5px;margin-top:2px}
+.kpi::after{content:"";position:absolute;right:-18px;top:-18px;width:80px;height:80px;border-radius:50%;background:var(--c);opacity:.12}
+.kpi .dot{position:absolute;right:16px;top:16px;width:10px;height:10px;border-radius:50%;background:var(--c);box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 25%,transparent)}
+
+/* ------------------------------------------------ filters */
+.bar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--panel);color:var(--muted);padding:7px 13px;border-radius:30px;font-size:12.5px;font-weight:600;transition:.15s}
+.chip:hover{color:var(--text)}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip .n{opacity:.75;margin-left:4px}
+.bar .right{margin-left:auto;display:flex;gap:8px}
+
+/* ------------------------------------------------ table */
+.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:auto}
+table{width:100%;border-collapse:separate;border-spacing:0;min-width:1080px}
+th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;text-align:left;padding:11px 9px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1}
+td{padding:11px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+th.act,td.act{position:sticky;right:0;background:var(--panel);box-shadow:-10px 0 14px -10px rgba(0,0,0,.45);z-index:2}
+th.act{background:var(--panel2);z-index:3}
+tbody tr:hover td.act{background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
+tbody tr{transition:background .2s}
+tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+tr.offline td{opacity:.55}
+tr.offline td.keep{opacity:1}
+tr.removed td:first-child{box-shadow:inset 4px 0 0 var(--warn)}
+tr.disc td:first-child{box-shadow:inset 4px 0 0 var(--err)}
+tr.flash{animation:flash 1.2s ease}
+@keyframes flash{0%{background:color-mix(in srgb,var(--accent) 22%,transparent)}100%{background:transparent}}
+.ring-cell{display:flex;align-items:center;gap:11px;cursor:pointer}
+.avatar{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:12px;color:#fff;background:linear-gradient(135deg,var(--accent),#7a5bfa);flex:none}
+.ring-cell b{display:block;font-size:13.5px}
+.ring-cell small{color:var(--muted);font-size:11px}
+.gw b{font-size:13px;font-weight:600;display:block;white-space:nowrap}
+.gw small{color:var(--muted);font-size:11px}
+.badges{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.badge i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.b-ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.b-err{color:var(--err);background:color-mix(in srgb,var(--err) 14%,transparent)}
+.b-warn{color:var(--warn);background:color-mix(in srgb,var(--warn) 16%,transparent)}
+.b-mute{color:var(--muted);background:color-mix(in srgb,var(--muted) 14%,transparent)}
+.b-info{color:var(--info);background:color-mix(in srgb,var(--info) 14%,transparent)}
+.pulse i{animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.battery{display:flex;align-items:center;gap:7px;font-weight:700;font-size:12.5px}
+.battery .shell{width:30px;height:14px;border:2px solid var(--line2);border-radius:4px;padding:1px;position:relative}
+.battery .shell::after{content:"";position:absolute;right:-5px;top:3px;width:3px;height:5px;background:var(--line2);border-radius:0 2px 2px 0}
+.battery .fill{height:100%;border-radius:2px}
+.val{min-width:64px}
+.val .v{font-size:16px;font-weight:800;letter-spacing:-.02em;white-space:nowrap}
+.val .v small{font-size:11px;color:var(--muted);font-weight:600;margin-left:2px}
+.val .t{font-size:10.5px;color:var(--faint);margin-top:1px;white-space:nowrap}
+.val .none{color:var(--faint);font-weight:600}
+.val .e{font-size:11.5px;font-weight:700;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.spin{width:15px;height:15px;border-radius:50%;border:2.5px solid color-mix(in srgb,var(--c) 25%,transparent);border-top-color:var(--c);animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pend{display:flex;align-items:center;gap:7px;color:var(--c);font-weight:700;font-size:12px}
+.actions{display:flex;gap:4px;align-items:center}
+.ab{width:30px;height:30px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--c,var(--text));display:grid;place-items:center;font-size:12px;font-weight:800;transition:.15s}
+.ab:hover{border-color:var(--c,var(--accent));background:color-mix(in srgb,var(--c,var(--accent)) 14%,var(--panel2));transform:translateY(-1px)}
+.ab:disabled{opacity:.35;pointer-events:none}
+.ab svg{width:16px;height:16px}
+.menu{position:relative}
+.dd{position:absolute;right:0;top:38px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.4);padding:6px;min-width:200px;z-index:20;display:none}
+.dd.on{display:block}
+.dd button{display:flex;width:100%;text-align:left;gap:9px;align-items:center;padding:9px 11px;border:0;background:transparent;color:var(--text);border-radius:9px;font-size:13px}
+.dd button:hover{background:var(--panel2)}
+.dd hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
+.dd .danger{color:var(--err)}
+.empty{padding:60px 20px;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--text);font-size:16px;margin-bottom:6px}
+
+/* ------------------------------------------------ gateways */
+.gws{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.gcard{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
+.gcard .h{display:flex;align-items:flex-start;gap:12px}
+.gcard .ic{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.gcard .ic svg{width:22px;height:22px}
+.gcard h3{font-size:15px;font-weight:800}
+.gcard .dn{color:var(--muted);font-size:12px}
+.gcard .h .badge{margin-left:auto}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0;font-size:12.5px}
+.kv span:nth-child(odd){color:var(--muted)}
+.kv span:nth-child(even){font-weight:600;text-align:right}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:8px 13px;border-radius:10px;font-size:12.5px;font-weight:700;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{color:var(--err)}
+.btn.danger:hover{border-color:var(--err)}
+.inp{flex:1;min-width:150px;padding:8px 11px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-family:"JetBrains Mono",monospace;font-size:12.5px;outline:none}
+.inp:focus{border-color:var(--accent)}
+select.inp{font-family:inherit}
+.scanlist{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
+.scanlist .it{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12.5px}
+.scanlist .it .mono{color:var(--muted);font-size:11.5px}
+.scanlist .it .btn{margin-left:auto;padding:5px 10px}
+
+/* ------------------------------------------------ journal */
+.feed{background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+.ev{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);align-items:flex-start}
+.ev:last-child{border-bottom:0}
+.ev .ico{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;flex:none;font-size:14px;font-weight:800}
+.ev .tx{flex:1}
+.ev .tx small{display:block;color:var(--faint);font-size:11px;margin-top:2px}
+.ev .tm{color:var(--muted);font-size:11.5px;white-space:nowrap}
+
+/* ------------------------------------------------ drawer */
+.scrim{position:fixed;inset:0;background:rgba(5,8,20,.55);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:.2s;z-index:40}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;right:0;top:0;bottom:0;width:min(620px,100vw);background:var(--panel);border-left:1px solid var(--line);box-shadow:-30px 0 60px rgba(0,0,0,.35);transform:translateX(100%);transition:transform .25s ease;z-index:41;display:flex;flex-direction:column}
+.drawer:not(.on){box-shadow:none;visibility:hidden;transition:transform .25s ease,visibility 0s .25s}
+.drawer.on{transform:none}
+.drawer .dh{padding:20px 22px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center}
+.drawer .dh h2{font-size:18px;font-weight:800}
+.drawer .dh .x{margin-left:auto;border:0;background:var(--panel2);color:var(--text);width:34px;height:34px;border-radius:10px;font-size:16px}
+.drawer .db{padding:18px 22px;overflow:auto;flex:1}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.tile{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:12px}
+.tile .l{font-size:11px;color:var(--muted);font-weight:600}
+.tile .v{font-size:20px;font-weight:800;margin-top:4px}
+.chart{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+.chart svg{width:100%;height:170px;display:block}
+.htable{width:100%;min-width:0;font-size:12.5px}
+.htable td,.htable th{padding:8px 10px}
+
+/* ------------------------------------------------ toasts */
+.toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:10px;z-index:60}
+.toast{min-width:300px;max-width:380px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:14px;padding:12px 14px;box-shadow:0 20px 50px rgba(0,0,0,.4);display:flex;gap:10px;align-items:flex-start;animation:in .25s ease}
+.toast b{display:block;font-size:13px}
+.toast small{color:var(--muted);font-size:12px}
+@keyframes in{from{transform:translateY(12px);opacity:0}}
+
+/* ------------------------------------------------ Telegram / PostgreSQL */
+.nav .sec{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#6f7ca8;padding:14px 12px 6px;font-weight:700}
+.dbbox{margin-top:8px;cursor:pointer;position:relative}
+.dbbox .caret{float:right;color:#8391bd;font-size:10px;margin-top:2px}
+.dbpanel{display:none;margin-top:8px;font-size:11.5px;color:#b9c3e6;border-top:1px solid rgba(255,255,255,.08);padding-top:8px}
+.dbpanel.on{display:block}
+.dbpanel div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.dbpanel div span:first-child{color:#8391bd}
+.dbpanel .err{color:#ff9aa5;display:block;word-break:break-word;margin-top:4px;max-height:60px;overflow:auto}
+.tgbtn{position:relative}
+.tgbtn .n{position:absolute;top:-5px;right:-5px;background:var(--accent);color:#fff;font-size:9.5px;font-weight:800;min-width:16px;height:16px;border-radius:9px;display:grid;place-items:center;padding:0 3px}
+.sw{display:inline-block;vertical-align:middle;position:relative;width:36px;height:20px;flex:none;cursor:pointer}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw span{position:absolute;inset:0;border-radius:20px;background:var(--line2);transition:.2s}
+.sw span::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.2s}
+.sw input:checked+span{background:var(--ok)}
+.sw input:checked+span::after{transform:translateX(16px)}
+.sw input:focus-visible+span{outline:2px solid var(--accent)}
+.modal{position:fixed;inset:0;z-index:50;display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;background:rgba(5,8,20,.6);backdrop-filter:blur(3px)}
+.modal.on{display:flex}
+.mbox{width:min(980px,100%);background:var(--panel);border:1px solid var(--line);border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.mhead{display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid var(--line)}
+.mhead h2{font-size:18px;font-weight:800}
+.mhead .x{margin-left:auto;border:0;background:var(--panel2);color:var(--text);width:34px;height:34px;border-radius:10px;font-size:16px}
+.mbody{padding:18px 22px}
+.acc{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;background:var(--panel2)}
+.acc.off{opacity:.6}
+.acc .top{display:flex;align-items:center;gap:12px;padding:0;border:0;background:none}
+.acc .who b{font-size:14px;display:block}
+.acc .who small{color:var(--muted);font-size:11.5px}
+.rights{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px}
+.right{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600}
+.measures{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:12.5px}
+.measures label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.measures input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+.measures input[type=radio]{accent-color:var(--accent)}
+.note{font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--warn) 10%,transparent);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);border-radius:10px;padding:8px 11px;margin-bottom:12px}
+.dtable{width:100%;border-collapse:separate;border-spacing:0;min-width:900px}
+.dtable td{font-size:13px}
+.dtable .sub{color:var(--muted);font-size:11px;display:block}
+.pill-list{display:flex;flex-wrap:wrap;gap:5px}
+.pill-list span{font-size:11px;padding:3px 8px;border-radius:8px;background:var(--panel2);border:1px solid var(--line)}
+.pill-list span.off{opacity:.5;text-decoration:line-through}
+.statgrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.err-box{padding:16px;border-radius:14px;background:color-mix(in srgb,var(--err) 10%,transparent);border:1px solid color-mix(in srgb,var(--err) 35%,transparent);color:var(--err);font-size:13px;margin-bottom:14px}
+
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:820px){.side{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.search{display:none}.top,.content{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+
+<!-- ======================================================== SIDEBAR -->
+<aside class="side">
+  <div class="brand"><div class="mark"><span></span></div><div><b>QRing Admin</b><small>Supervision EPAT</small></div></div>
+  <nav class="nav">
+    <a data-view="rings" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/></svg>Bagues<span class="count" id="c-rings">0</span></a>
+    <a data-view="gateways"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Gateways<span class="count" id="c-gw">0</span></a>
+    <a data-view="journal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Journal<span class="count" id="c-alerts">0</span></a>
+    <div class="sec">Telegram</div>
+    <a data-view="pairing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7"/></svg>Appariements<span class="count" id="c-pairing">0</span></a>
+    <a data-view="tgusers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7M17 11a3 3 0 1 0 0-6M22 21c0-3-2-5-4-6"/></svg>Utilisateurs<span class="count" id="c-users">·</span></a>
+    <a data-view="webapp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Web App<span class="count" id="c-webapp">·</span></a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="broker"><div class="l">Broker MQTT</div><span id="broker" class="badge b-mute"><i></i>…</span><div class="l mono" style="margin-top:6px">{{ broker }}</div></div>
+  <div class="broker dbbox" id="dbbox" title="Détails PostgreSQL"><div class="l">PostgreSQL <span class="caret">▼</span></div><span id="dbbadge" class="badge b-mute"><i></i>…</span>
+    <div class="dbpanel" id="dbpanel"></div></div>
+  <div class="foot"><button id="theme">Thème</button><button id="sound">🔔 Son</button><a href="/logout">Quitter</a></div>
+</aside>
+
+<!-- ======================================================== MAIN -->
+<main>
+  <div class="top">
+    <div><h1 id="title">Bagues</h1><div class="sub" id="subtitle">Une ligne par bague · mise à jour en direct</div></div>
+    <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Rechercher MAC, nom, gateway…"></div>
+    <div class="clock mono" id="clock"></div>
+  </div>
+
+  <div class="content">
+    <!-- ---------------- BAGUES -->
+    {% if weak_password %}<div class="err-box" style="color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent);border-color:color-mix(in srgb,var(--warn) 35%,transparent)">⚠ Mot de passe admin par défaut (« admin »). Définissez <span class="mono">QRING_ADMIN_PASSWORD</span> dans le .env.</div>{% endif %}
+    <section class="view on" id="v-rings">
+      <div class="kpis">
+        <div class="kpi" style="--c:var(--accent)"><span class="dot"></span><div class="l">Bagues suivies</div><div class="v" id="k-total">0</div><div class="s">dans le tableau</div></div>
+        <div class="kpi" style="--c:var(--ok)"><span class="dot"></span><div class="l">Gateways en ligne</div><div class="v" id="k-online">0</div><div class="s">statut reçu &lt; 2 min</div></div>
+        <div class="kpi" style="--c:var(--err)"><span class="dot"></span><div class="l">Hors ligne / déconnectées</div><div class="v" id="k-off">0</div><div class="s">gateway ou Bluetooth</div></div>
+        <div class="kpi" style="--c:var(--warn)"><span class="dot"></span><div class="l">Bagues retirées</div><div class="v" id="k-removed">0</div><div class="s">« veuillez porter la bague »</div></div>
+        <div class="kpi" style="--c:var(--spo2)"><span class="dot"></span><div class="l">Mesures en cours</div><div class="v" id="k-pending">0</div><div class="s">en attente de résultat</div></div>
+      </div>
+      <div class="bar" id="filters">
+        <button class="chip on" data-f="all">Toutes<span class="n"></span></button>
+        <button class="chip" data-f="online">En ligne<span class="n"></span></button>
+        <button class="chip" data-f="offline">Hors ligne<span class="n"></span></button>
+        <button class="chip" data-f="removed">Retirées<span class="n"></span></button>
+        <button class="chip" data-f="alert">Alertes<span class="n"></span></button>
+        <div class="right"><button class="btn" id="measure-all-online">▶ Mesurer ♥ + SpO2 (en ligne)</button></div>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>Bague</th><th>Gateway</th><th>État</th><th>Batterie</th>
+            <th>♥ Cœur</th><th>SpO2</th><th>Temp.</th><th>Tension</th><th>HRV</th><th>Stress</th><th>Pas</th>
+            <th class="act">Actions</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="empty" id="empty"><b>Aucune bague pour l'instant</b>Les bagues apparaissent dès que leur gateway publie son statut sur MQTT.</div>
+      </div>
+    </section>
+
+    <!-- ---------------- GATEWAYS -->
+    <section class="view" id="v-gateways">
+      <div class="bar"><span style="color:var(--muted);font-size:13px">Chaque TV / téléphone écoute <span class="mono">{{ prefix }}/gateway/&lt;nom&gt;/cmd</span></span></div>
+      <div class="gws" id="gws"></div>
+      <div class="empty" id="gw-empty"><b>Aucun gateway détecté</b>Lancez l'application sur une TV connectée au broker.</div>
+    </section>
+
+    <!-- ---------------- JOURNAL -->
+    <section class="view" id="v-journal">
+      <div class="bar" id="jfilters">
+        <button class="chip on" data-j="all">Tout</button>
+        <button class="chip" data-j="error">Erreurs</button>
+        <button class="chip" data-j="warn">Avertissements</button>
+        <button class="chip" data-j="ok">Résultats</button>
+        <button class="chip" data-j="info">Commandes</button>
+      </div>
+      <div class="feed" id="feed"></div>
+    </section>
+
+    <!-- ---------------- APPARIEMENTS QR -->
+    <section class="view" id="v-pairing">
+      <div class="bar" id="pfilters">
+        <button class="chip on" data-p="pending">En attente<span class="n" id="pn-pending"></span></button>
+        <button class="chip" data-p="approved">Approuvées<span class="n" id="pn-approved"></span></button>
+        <button class="chip" data-p="rejected">Refusées<span class="n" id="pn-rejected"></span></button>
+        <button class="chip" data-p="cancelled">Annulées<span class="n" id="pn-cancelled"></span></button>
+        <button class="chip" data-p="all">Toutes</button>
+        <div class="right"><button class="btn" onclick="loadPairing()">↻ Actualiser</button></div>
+      </div>
+      <div id="pairing-err"></div>
+      <div class="tablewrap"><table class="dtable"><thead><tr><th>Demande</th><th>Utilisateur Telegram</th><th>Bague</th><th>Statut</th><th>Décision</th><th class="act">Actions</th></tr></thead><tbody id="pairing-body"></tbody></table>
+        <div class="empty" id="pairing-empty"><b>Aucune demande</b>Les demandes arrivent quand un utilisateur scanne le QR code d'une bague.</div></div>
+    </section>
+
+    <!-- ---------------- UTILISATEURS TELEGRAM -->
+    <section class="view" id="v-tgusers">
+      <div class="statgrid" id="u-stats"></div>
+      <div class="bar" id="ufilters">
+        <button class="chip on" data-u="all">Tous<span class="n"></span></button>
+        <button class="chip" data-u="active">Actifs<span class="n"></span></button>
+        <button class="chip" data-u="inactive">Désactivés<span class="n"></span></button>
+        <button class="chip" data-u="webapp">Web App ouverte<span class="n"></span></button>
+        <button class="chip" data-u="norings">Sans bague<span class="n"></span></button>
+        <div class="right"><button class="btn" onclick="loadUsers()">↻ Actualiser</button></div>
+      </div>
+      <div id="users-err"></div>
+      <div class="tablewrap"><table class="dtable"><thead><tr><th>Utilisateur</th><th>Telegram ID</th><th>Langue</th><th>Bagues affectées</th><th>Web App</th><th>Dernière connexion</th><th class="act">Compte</th></tr></thead><tbody id="users-body"></tbody></table>
+        <div class="empty" id="users-empty"><b>Aucun utilisateur</b>Un utilisateur apparaît ici après avoir fait /start dans le bot.</div></div>
+    </section>
+
+    <!-- ---------------- SESSIONS WEB APP -->
+    <section class="view" id="v-webapp">
+      <div class="statgrid" id="w-stats"></div>
+      <div class="bar" id="wfilters">
+        <button class="chip on" data-w="all">Toutes<span class="n"></span></button>
+        <button class="chip" data-w="active">Actives<span class="n"></span></button>
+        <button class="chip" data-w="closed">Terminées<span class="n"></span></button>
+        <div class="right"><span style="color:var(--muted);font-size:12px" id="w-refresh">Actualisation auto toutes les 5 s</span></div>
+      </div>
+      <div id="webapp-err"></div>
+      <div class="tablewrap"><table class="dtable"><thead><tr><th>Utilisateur</th><th>Telegram ID</th><th>Bague</th><th>MAC</th><th>Ouverture</th><th>Dernière activité</th><th>Fermeture</th><th>Durée</th><th>État</th></tr></thead><tbody id="webapp-body"></tbody></table>
+        <div class="empty" id="webapp-empty"><b>Aucune session</b>Les sessions apparaissent quand un utilisateur ouvre « 🌐 VUE WEB » dans le bot.</div></div>
+    </section>
+  </div>
+</main>
+
+<!-- ======================================================== DRAWER -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <div class="dh"><div class="avatar" id="d-av">R</div><div><h2 id="d-title">Bague</h2><div class="mono" style="color:var(--muted);font-size:12px" id="d-mac"></div></div><button class="x" id="d-close">✕</button></div>
+  <div class="db">
+    <div class="tiles" id="d-tiles"></div>
+    <div class="bar" id="d-types"></div>
+    <div class="chart"><svg id="d-chart" viewBox="0 0 600 170" preserveAspectRatio="none"></svg><div id="d-stats" style="color:var(--muted);font-size:12px;margin-top:6px"></div></div>
+    <table class="htable"><thead><tr><th>Date</th><th>Résultat</th><th>Gateway</th><th>Réf.</th></tr></thead><tbody id="d-rows"></tbody></table>
+  </div>
+</aside>
+
+<!-- ======================================================== MODAL TELEGRAM -->
+<div class="modal" id="tgmodal" onclick="if(event.target===this)closeTg()">
+  <div class="mbox">
+    <div class="mhead"><div class="avatar" style="background:linear-gradient(135deg,#2aa1e0,#1c7fc0)">✈</div>
+      <div><h2 id="tg-title">Accès Telegram</h2><div class="mono" style="color:var(--muted);font-size:12px" id="tg-sub"></div></div>
+      <button class="x" onclick="closeTg()">✕</button></div>
+    <div class="mbody" id="tg-body"></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+const PREFIX = {{ prefix|tojson }};
+const S = { rings:{}, gateways:{}, events:[], broker:false, filter:'all', jfilter:'all', q:'', view:'rings', drawerMac:null, dtype:'hr', offset:0 };
+const COLORS = { hr:'var(--hr)', spo2:'var(--spo2)', temp:'var(--temp)', bp:'var(--bp)', hrv:'var(--hrv)', stress:'var(--stress)', steps:'var(--steps)', all:'var(--accent)' };
+const LABELS = { hr:'Cœur', spo2:'SpO2', temp:'Température', bp:'Tension', hrv:'HRV', stress:'Stress', all:'Tout', steps:'Pas', sleep:'Sommeil', sedentary:'Sédentarité', workouts:'Entraînements', history:'Historique bague', battery:'Batterie', info:'Infos' };
+const RING_STATE = { connected:['b-ok','Bague connectée'], connecting:['b-warn pulse','Connexion…'], disconnected:['b-err','Bague déconnectée'], bluetooth_off:['b-err','Bluetooth coupé'], no_ring:['b-mute','Aucune bague'], unbound:['b-mute','Dissociée'], unknown:['b-mute','Inconnu'] };
+let soundOn = localStorageGet('sound') === '1';
+
+function localStorageGet(k){ try { return localStorage.getItem(k) } catch(e){ return null } }
+function localStorageSet(k,v){ try { localStorage.setItem(k,v) } catch(e){} }
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nowS = () => Math.floor(Date.now()/1000) + S.offset;
+function ago(ts){ if(!ts) return '—'; const d = nowS() - ts; if(d < 10) return "à l'instant"; if(d < 60) return `il y a ${d} s`; if(d < 3600) return `il y a ${Math.floor(d/60)} min`; if(d < 86400) return `il y a ${Math.floor(d/3600)} h`; return new Date(ts*1000).toLocaleDateString('fr-FR'); }
+function fmtDate(ts){ return new Date(ts*1000).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function initials(r){ const n = (r.name||r.mac).replace(/[^A-Za-z0-9]/g,''); return (r.model || n.slice(0,3)).slice(0,3).toUpperCase(); }
+
+// ------------------------------------------------------------------ état d'une bague
+function ringStatus(r){
+  if (r.unbound) return 'unbound';
+  if (!r.online) return 'offline';
+  if (r.ring === 'disconnected' || r.ring === 'bluetooth_off') return 'disc';
+  if (r.worn === false) return 'removed';
+  return 'ok';
+}
+function hasAlert(r){ const s = ringStatus(r); return s !== 'ok' || Object.keys(r.errors||{}).length > 0 || (r.battery != null && r.battery < 20); }
+
+function valueCell(r, key){
+  const c = COLORS[key] || 'var(--accent)';
+  const p = (r.pending||{})[key] || (key !== 'all' && (r.pending||{}).all && ['hr','spo2','temp','bp','hrv','stress'].includes(key) ? r.pending.all : null);
+  if (p) { const el = Math.max(0, nowS() - p.since); return `<div class="val" style="--c:${c}"><div class="pend"><span class="spin"></span>${el} s</div><div class="t">mesure en cours</div></div>`; }
+  const e = (r.errors||{})[key];
+  const v = (r.values||{})[key];
+  if (e && (!v || e.ts >= v.ts)) {
+    const cls = e.code === 'ring_removed' ? 'var(--warn)' : 'var(--err)';
+    const short = { ring_removed:'Retirée', ring_disconnected:'Déconnectée', timeout:'Pas de résultat', measure_failed:'Échec', cancelled:'Annulée', not_supported:'Non supporté' }[e.code] || e.label;
+    return `<div class="val" title="${esc(e.label)}"><div class="e" style="color:${cls}">⚠ ${esc(short)}</div><div class="t">${ago(e.ts)}</div></div>`;
+  }
+  if (!v) return `<div class="val"><span class="none">—</span></div>`;
+  const d = v.data || {};
+  let main = '';
+  if (key === 'bp') main = `${d.sbp ?? '–'}/${d.dbp ?? '–'}<small>mmHg</small>`;
+  else if (key === 'temp') main = `${Number(d.value).toFixed(1)}<small>°C</small>`;
+  else if (key === 'steps') main = `${(d.steps ?? 0).toLocaleString('fr-FR')}`;
+  else main = `${d.value ?? '–'}<small>${ {hr:'bpm',spo2:'%',hrv:'ms',stress:''}[key] ?? '' }</small>`;
+  let warn = '';
+  if (key === 'spo2' && d.value && d.value < 92) warn = 'color:var(--err)';
+  if (key === 'hr' && d.value && (d.value > 120 || d.value < 45)) warn = 'color:var(--err)';
+  if (key === 'temp' && d.value && d.value >= 38) warn = 'color:var(--err)';
+  return `<div class="val"><div class="v" style="${warn}">${main}</div><div class="t">${ago(v.ts)}${v.source==='manual'?' · manuel':''}</div></div>`;
+}
+
+function batteryCell(r){
+  if (r.battery == null) return '<span class="none" style="color:var(--faint)">—</span>';
+  const b = r.battery, col = b < 20 ? 'var(--err)' : b < 40 ? 'var(--warn)' : 'var(--ok)';
+  return `<div class="battery"><div class="shell"><div class="fill" style="width:${b}%;background:${col}"></div></div>${b}%${r.charging?' ⚡':''}</div>`;
+}
+
+/** Un seul badge, le plus important : dissociée > gateway hors ligne > Bluetooth > retirée > OK */
+function stateBadges(r){
+  let b;
+  if (r.unbound) b = ['b-mute','Dissociée'];
+  else if (!r.online) b = ['b-err','Gateway hors ligne'];
+  else if (r.ring !== 'connected') b = (RING_STATE[r.ring] || RING_STATE.unknown);
+  else if (r.worn === false) b = ['b-warn pulse','Bague retirée'];
+  else b = ['b-ok', r.worn ? 'Connectée · portée' : 'Connectée'];
+  return `<span class="badge ${b[0]}"><i></i>${b[1]}</span>`;
+}
+
+function wornBadge(r){
+  if (r.worn === false) return '<span class="badge b-warn pulse"><i></i>Retirée</span>';
+  if (r.worn === true) return '<span class="badge b-ok"><i></i>Portée</span>';
+  return '<span class="badge b-mute"><i></i>Inconnu</span>';
+}
+
+const ICON_DOTS = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+
+function rowHtml(r){
+  const st = ringStatus(r);
+  const can = r.online && !r.unbound && r.ring === 'connected';
+  const busy = Object.keys(r.pending||{}).length > 0;
+  const btn = (k, t, title) => `<button class="ab" style="--c:${COLORS[k]}" title="${title}" ${can?'':'disabled'} onclick="cmd('${r.mac}','${k}')">${t}</button>`;
+  return `<tr id="r-${r.mac.replace(/:/g,'')}" class="${st==='offline'||st==='unbound'?'offline':''} ${st==='removed'?'removed':''} ${st==='disc'?'disc':''}">
+    <td class="keep"><div class="ring-cell" onclick="openDrawer('${r.mac}')"><div class="avatar">${esc(initials(r))}</div><div><b>${esc(r.name || 'Bague')}</b><small class="mono">${esc(r.mac)}</small></div></div></td>
+    <td><div class="gw" title="LAN ${esc(r.lanIp || '—')} · WAN ${esc(r.wanIp || '—')}"><b>${esc(r.deviceName || r.gateway || '—')}</b><small class="mono">${esc(r.lanIp || '—')}</small></div></td>
+    <td class="keep" title="Dernier statut : ${ago(r.statusTs)}">${stateBadges(r)}<div style="color:var(--faint);font-size:10.5px;margin-top:3px">statut ${ago(r.statusTs)}</div></td>
+    <td>${batteryCell(r)}</td>
+    <td>${valueCell(r,'hr')}</td><td>${valueCell(r,'spo2')}</td><td>${valueCell(r,'temp')}</td><td>${valueCell(r,'bp')}</td>
+    <td>${valueCell(r,'hrv')}</td><td>${valueCell(r,'stress')}</td><td>${valueCell(r,'steps')}</td>
+    <td class="keep act"><div class="actions">
+      ${btn('hr','♥','Fréquence cardiaque (60 s max)')}${btn('spo2','O₂','SpO2 (90 s max)')}${btn('temp','T°','Température')}${btn('bp','BP','Tension')}${btn('all','⚡','Tout mesurer')}
+      <button class="ab tgbtn" style="--c:#2aa1e0" title="Accès Telegram" onclick="openTg('${r.mac}')">✈${r.tgCount ? `<span class="n">${r.tgCount}</span>` : ''}</button>
+      <div class="menu"><button class="ab" onclick="toggleMenu(event,'${r.mac}')">${ICON_DOTS}</button>
+        <div class="dd" id="m-${r.mac.replace(/:/g,'')}">
+          <button onclick="cmd('${r.mac}','hrv')" ${can?'':'disabled'}>∿ HRV</button>
+          <button onclick="cmd('${r.mac}','stress')" ${can?'':'disabled'}>⚡ Stress</button>
+          <hr>
+          <button onclick="cmd('${r.mac}','battery')" ${can?'':'disabled'}>🔋 Batterie</button>
+          <button onclick="cmd('${r.mac}','steps')" ${can?'':'disabled'}>👣 Pas du jour</button>
+          <button onclick="cmd('${r.mac}','sleep')" ${can?'':'disabled'}>☾ Sommeil</button>
+          <button onclick="cmd('${r.mac}','sedentary')" ${can?'':'disabled'}>🪑 Sédentarité</button>
+          <button onclick="cmd('${r.mac}','workouts')" ${can?'':'disabled'}>🏃 Entraînements</button>
+          <button onclick="cmd('${r.mac}','history')" ${can?'':'disabled'}>📈 Historique de la bague</button>
+          <button onclick="cmd('${r.mac}','info')">ℹ Infos</button>
+          <button onclick="cmd('${r.mac}','ping')">📡 Ping</button>
+          <hr>
+          <button onclick="cmd('${r.mac}','cancel')" ${busy?'':'disabled'}>⏹ Annuler la mesure</button>
+          <button onclick="openDrawer('${r.mac}')">🗂 Détails &amp; historique</button>
+          <button onclick="openTg('${r.mac}')">✈ Accès Telegram</button>
+          <button class="danger" onclick="forget('${r.mac}')">🗑 Retirer du tableau</button>
+        </div></div>
+    </div></td>
+  </tr>`;
+}
+
+function matches(r){
+  const q = S.q.trim().toLowerCase();
+  if (q && ![r.mac, r.name, r.gateway, r.deviceName, r.model].join(' ').toLowerCase().includes(q)) return false;
+  const st = ringStatus(r);
+  switch (S.filter) {
+    case 'online': return st !== 'offline' && st !== 'unbound';
+    case 'offline': return st === 'offline' || st === 'disc' || st === 'unbound';
+    case 'removed': return st === 'removed';
+    case 'alert': return hasAlert(r);
+  }
+  return true;
+}
+
+function renderRings(flashMac){
+  const all = Object.values(S.rings).sort((a,b) => (a.deviceName||a.gateway||'').localeCompare(b.deviceName||b.gateway||'') || a.mac.localeCompare(b.mac));
+  const list = all.filter(matches);
+  $('#tbody').innerHTML = list.map(rowHtml).join('');
+  $('#empty').style.display = all.length ? 'none' : 'block';
+  if (flashMac) { const tr = document.getElementById('r-' + flashMac.replace(/:/g,'')); if (tr) { tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash'); } }
+  // KPI
+  const cnt = s => all.filter(r => ringStatus(r) === s).length;
+  $('#k-total').textContent = all.length;
+  $('#k-online').textContent = Object.values(S.gateways).filter(g => g.online).length || all.filter(r => r.online).length;
+  $('#k-off').textContent = cnt('offline') + cnt('disc');
+  $('#k-removed').textContent = cnt('removed');
+  $('#k-pending').textContent = all.reduce((n,r) => n + Object.keys(r.pending||{}).length, 0);
+  $('#c-rings').textContent = all.length;
+  const alerts = all.filter(hasAlert).length;
+  const ca = $('#c-alerts'); ca.textContent = alerts; ca.classList.toggle('alert', alerts > 0);
+  document.querySelectorAll('#filters .chip').forEach(c => {
+    const f = c.dataset.f, n = f === 'all' ? all.length : all.filter(r => { const o = S.filter; S.filter = f; const m = matches(r); S.filter = o; return m; }).length;
+    c.querySelector('.n').textContent = n;
+  });
+}
+
+// ------------------------------------------------------------------ gateways
+function renderGateways(force){
+  // Ne pas effacer une MAC en cours de saisie
+  if (!force && document.activeElement && document.activeElement.closest && document.activeElement.closest('#gws')) return;
+  const gws = Object.values(S.gateways).sort((a,b) => a.name.localeCompare(b.name));
+  $('#c-gw').textContent = gws.length;
+  $('#gw-empty').style.display = gws.length ? 'none' : 'block';
+  $('#gws').innerHTML = gws.map(g => {
+    const ring = g.ringMac ? S.rings[g.ringMac] : null;
+    const scan = g.scan && g.scan.rings && g.scan.rings.length ? `<div class="scanlist"><div style="font-size:11.5px;color:var(--muted);margin-bottom:4px">Bagues à proximité (${ago(g.scan.ts)})</div>${
+      g.scan.rings.map(s => `<div class="it"><b>${esc(s.name)}</b><span class="mono">${esc(s.mac)}</span><span style="color:var(--muted)">${s.rssi} dBm</span><button class="btn" onclick="gcmd('${esc(g.name)}','bind',{mac:'${esc(s.mac)}'})">Associer</button></div>`).join('')}</div>` : '';
+    const bind = g.bind && (nowS() - g.bind.ts < 60) ? `<div style="margin-top:10px">${g.bind.status==='searching' ? '<span class="badge b-info pulse"><i></i>Recherche de la bague…</span>' : g.bind.status==='ok' ? '<span class="badge b-ok"><i></i>Bague associée</span>' : `<span class="badge b-err"><i></i>${esc(g.bind.error||'Erreur')}</span>`}</div>` : '';
+    return `<div class="gcard">
+      <div class="h"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <div><h3>${esc(g.name)}</h3><div class="dn">${esc(g.deviceName || '')}</div></div>
+        ${g.online ? '<span class="badge b-ok"><i></i>En ligne</span>' : '<span class="badge b-err"><i></i>Hors ligne</span>'}</div>
+      <div class="kv">
+        <span>Bague associée</span><span class="mono">${g.ringMac ? esc((ring && ring.name ? ring.name + ' · ' : '') + g.ringMac) : '—'}</span>
+        <span>État bague</span><span>${esc((RING_STATE[g.ring]||RING_STATE.unknown)[1])}</span>
+        <span>IP LAN</span><span class="mono">${esc(g.lanIp || '—')}</span>
+        <span>IP WAN</span><span class="mono">${esc(g.wanIp || '—')}</span>
+        <span>Langue</span><span>${esc({fr:'Français',en:'English',ar:'العربية'}[g.lang] || '—')}</span>
+        <span>Dernier statut</span><span>${ago(g.statusTs)}</span>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input class="inp" id="bind-${esc(g.name)}" placeholder="MAC ex. C4:A1:5F:22:A4:F1">
+        <button class="btn primary" onclick="bindInput('${esc(g.name)}')">Associer</button>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="gcmd('${esc(g.name)}','scan')">📡 Scanner</button>
+        <button class="btn danger" onclick="if(confirm('Dissocier la bague de ${esc(g.name)} ?')) gcmd('${esc(g.name)}','unbind')" ${g.ringMac?'':'disabled'}>Dissocier</button>
+        <select class="inp" style="flex:0 0 120px" onchange="gcmd('${esc(g.name)}','lang',{value:this.value})">
+          <option value="">Langue…</option><option value="fr">Français</option><option value="en">English</option><option value="ar">العربية</option>
+        </select>
+        <button class="btn" onclick="gcmd('${esc(g.name)}','ping')">Ping</button>
+      </div>
+      ${bind}${scan}
+    </div>`;
+  }).join('');
+}
+
+// ------------------------------------------------------------------ journal
+const EV = { ok:['var(--ok)','✓'], info:['var(--info)','›'], warn:['var(--warn)','!'], error:['var(--err)','✕'] };
+function renderFeed(){
+  const list = S.events.filter(e => S.jfilter === 'all' || e.level === S.jfilter).slice(0, 150);
+  $('#feed').innerHTML = list.length ? list.map(e => {
+    const [c, i] = EV[e.level] || EV.info;
+    return `<div class="ev"><div class="ico" style="color:${c};background:color-mix(in srgb,${c} 15%,transparent)">${i}</div><div class="tx">${esc(e.text)}<small>${[e.gateway, e.mac].filter(Boolean).map(esc).join(' · ')}</small></div><div class="tm">${fmtDate(e.ts)}</div></div>`;
+  }).join('') : '<div class="empty"><b>Journal vide</b>Les événements apparaîtront ici.</div>';
+}
+
+// ------------------------------------------------------------------ actions
+async function post(url, body){
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {}) });
+  if (r.status === 401) location.href = '/login';
+  return r.json();
+}
+async function cmd(mac, c){
+  closeMenus();
+  const res = await post(`/api/ring/${mac}/cmd`, { cmd:c });
+  if (res.busy) toast('warn', '🟠 Mesure en cours', res.error + ' — réessayez à la fin.');
+  else if (res.already) toast('info', '🟠 Déjà en cours', 'Cette mesure est déjà lancée, le résultat arrivera ici.');
+  else if (res.error) toast('error', 'Commande refusée', res.error);
+}
+async function gcmd(name, c, extra){ const res = await post(`/api/gateway/${encodeURIComponent(name)}/cmd`, Object.assign({ cmd:c }, extra||{})); if (res.error) toast('error', 'Commande refusée', res.error); else if (c==='bind') { S.gateways[name].bind = { ts:nowS(), status:'searching' }; renderGateways(); } else toast('info', `Commande envoyée à ${name}`, c); }
+function bindInput(name){ const v = document.getElementById('bind-' + name).value.trim(); if (!v) return; gcmd(name, 'bind', { mac:v }); }
+async function forget(mac){ closeMenus(); if (!confirm('Retirer cette bague du tableau ? (son historique est conservé)')) return; await fetch(`/api/ring/${mac}`, { method:'DELETE' }); delete S.rings[mac]; renderRings(); }
+function toggleMenu(ev, mac){ ev.stopPropagation(); const id = 'm-' + mac.replace(/:/g,''); document.querySelectorAll('.dd').forEach(d => { if (d.id !== id) d.classList.remove('on') }); document.getElementById(id).classList.toggle('on'); }
+function closeMenus(){ document.querySelectorAll('.dd.on').forEach(d => d.classList.remove('on')); }
+document.addEventListener('click', closeMenus);
+$('#measure-all-online').onclick = () => {
+  const list = Object.values(S.rings).filter(r => r.online && r.ring === 'connected' && !r.unbound);
+  if (!list.length) return toast('warn', 'Aucune bague connectée', '');
+  if (!confirm(`Lancer cœur + SpO2 sur ${list.length} bague(s) ?`)) return;
+  list.forEach(r => { cmd(r.mac, 'hr'); setTimeout(() => cmd(r.mac, 'spo2'), 400); });
+};
+
+// ------------------------------------------------------------------ détails d'une bague
+const DTYPES = ['hr','spo2','temp','bp','hrv','stress','all'];
+async function openDrawer(mac){
+  closeMenus(); S.drawerMac = mac; const r = S.rings[mac]; if (!r) return;
+  $('#d-av').textContent = initials(r); $('#d-title').textContent = r.name || 'Bague'; $('#d-mac').textContent = mac + (r.model ? ' · ' + r.model : '') + (r.firmware ? ' · fw ' + r.firmware : '');
+  $('#d-tiles').innerHTML = [
+    ['Gateway', esc(r.deviceName || r.gateway || '—')], ['Batterie', r.battery != null ? r.battery + ' %' + (r.charging?' ⚡':'') : '—'], ['Port', r.worn === false ? '<span style="color:var(--warn)">Retirée</span>' : r.worn ? 'Portée' : '—'],
+    ['IP LAN', `<span class="mono" style="font-size:14px">${esc(r.lanIp || '—')}</span>`], ['IP WAN', `<span class="mono" style="font-size:14px">${esc(r.wanIp || '—')}</span>`], ['Langue', esc(r.lang || '—')]
+  ].map(([l,v]) => `<div class="tile"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
+  $('#d-types').innerHTML = DTYPES.map(t => `<button class="chip ${t===S.dtype?'on':''}" onclick="S.dtype='${t}';loadHistory()">${LABELS[t]}</button>`).join('');
+  $('#drawer').classList.add('on'); $('#scrim').classList.add('on');
+  loadHistory();
+}
+function closeDrawer(){ S.drawerMac = null; $('#drawer').classList.remove('on'); $('#scrim').classList.remove('on'); }
+$('#d-close').onclick = closeDrawer; $('#scrim').onclick = closeDrawer;
+async function loadHistory(){
+  const mac = S.drawerMac; if (!mac) return;
+  document.querySelectorAll('#d-types .chip').forEach((c,i) => c.classList.toggle('on', DTYPES[i] === S.dtype));
+  const rows = await (await fetch(`/api/ring/${mac}/history?type=${S.dtype}&limit=300`)).json();
+  const key = S.dtype === 'bp' ? 'sbp' : S.dtype === 'all' ? 'hr' : 'value';
+  const pts = rows.filter(x => x.status === 'ok' && x.data[key] != null).map(x => [x.ts, Number(x.data[key])]).reverse();
+  drawChart(pts, COLORS[S.dtype]);
+  $('#d-rows').innerHTML = rows.slice(0, 80).map(x => {
+    const res = x.status === 'ok' ? `<b>${esc(shortVal(S.dtype, x.data))}</b>` : `<span style="color:${x.error==='ring_removed'?'var(--warn)':'var(--err)'}">⚠ ${esc(x.error)}</span>`;
+    const dur = x.dur != null ? ` <span style="color:var(--muted);font-size:11.5px">⏱ ${x.dur} s</span>` : '';
+    return `<tr><td>${fmtDate(x.ts)}</td><td>${res}${dur}</td><td>${esc(x.gateway||'')}</td><td class="mono" style="color:var(--faint);font-size:11px">${esc(x.reqId||'')}</td></tr>`;
+  }).join('') || '<tr><td colspan="4" style="color:var(--muted)">Aucune mesure enregistrée.</td></tr>';
+}
+function shortVal(t, d){ if (t==='bp') return `${d.sbp}/${d.dbp} mmHg`; if (t==='all') return ['hr','spo2','temp'].filter(k => d[k]!=null).map(k => `${LABELS[k]} ${d[k]}`).join(' · '); return `${d.value} ${ {hr:'bpm',spo2:'%',temp:'°C',hrv:'ms'}[t] || '' }`; }
+function drawChart(pts, color){
+  const svg = $('#d-chart'), W = 600, H = 170, P = 10;
+  if (!pts.length) { svg.innerHTML = `<text x="300" y="90" text-anchor="middle" fill="currentColor" style="color:var(--muted);font-size:13px">Pas encore de mesures</text>`; $('#d-stats').textContent=''; return; }
+  const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0+1, y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = Math.max(1,(y1-y0)*.15), lo = y0-pad, hi = y1+pad;
+  const X = x => P + (x1===x0 ? (W-2*P)/2 : (x-x0)/(x1-x0)*(W-2*P)), Y = y => H-P - (y-lo)/(hi-lo)*(H-2*P);
+  const line = pts.map((p,i) => `${i?'L':'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ');
+  const grid = [0,1,2,3].map(i => `<line x1="0" x2="${W}" y1="${P+i*(H-2*P)/3}" y2="${P+i*(H-2*P)/3}" stroke="var(--line)" stroke-width="1"/>`).join('');
+  svg.innerHTML = `${grid}<path d="${line} L${X(pts.at(-1)[0])},${H} L${X(pts[0][0])},${H} Z" fill="${color}" opacity=".13"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` +
+    pts.map(p => `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3" fill="${color}"/>`).join('');
+  const avg = ys.reduce((a,b)=>a+b,0)/ys.length;
+  $('#d-stats').textContent = `${pts.length} mesures · moyenne ${avg.toFixed(1)} · min ${y0} · max ${y1}`;
+}
+
+// ------------------------------------------------------------------ notifications
+function beep(){ if (!soundOn) return; try { const a = new (window.AudioContext||window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.frequency.value = 880; o.connect(g); g.connect(a.destination); g.gain.setValueAtTime(.15, a.currentTime); g.gain.exponentialRampToValueAtTime(.001, a.currentTime+.4); o.start(); o.stop(a.currentTime+.4); } catch(e){} }
+function toast(level, title, text){
+  const c = (EV[level]||EV.info)[0], el = document.createElement('div');
+  el.className = 'toast'; el.style.setProperty('--c', c);
+  el.innerHTML = `<div><b>${esc(title)}</b><small>${esc(text)}</small></div>`;
+  $('#toasts').prepend(el); setTimeout(() => el.remove(), 7000);
+  while ($('#toasts').children.length > 5) $('#toasts').lastChild.remove();
+}
+
+// ------------------------------------------------------------------ temps réel
+function connectStream(){
+  const es = new EventSource('/stream');
+  es.onmessage = m => {
+    const { kind, data } = JSON.parse(m.data);
+    if (kind === 'ring') { S.rings[data.mac] = data; renderRings(data.mac); if (S.drawerMac === data.mac) loadHistory(); }
+    else if (kind === 'gateway') { S.gateways[data.name] = data; renderGateways(); renderRings(); }
+    else if (kind === 'ring_removed_from_list') { delete S.rings[data.mac]; renderRings(); }
+    else if (kind === 'broker') setBroker(data.online);
+    else if (kind === 'db') setDb(data);
+    else if (kind === 'event') {
+      S.events.unshift(data); S.events.length = Math.min(S.events.length, 300); renderFeed();
+      if (data.level === 'warn' || data.level === 'error') { toast(data.level, data.level === 'warn' ? 'Attention' : 'Alerte', data.text); beep(); }
+    }
+  };
+  es.onerror = () => setBroker(false);
+}
+function setBroker(on){ S.broker = on; const b = $('#broker'); b.className = 'badge ' + (on ? 'b-ok' : 'b-err'); b.innerHTML = `<i></i>${on ? 'Connecté' : 'Déconnecté'}`; }
+
+async function init(){
+  const r = await fetch('/api/state'); if (r.status === 401) return location.href = '/login';
+  const s = await r.json();
+  S.offset = s.now - Math.floor(Date.now()/1000);
+  s.rings.forEach(x => S.rings[x.mac] = x); s.gateways.forEach(g => S.gateways[g.name] = g); S.events = s.events;
+  S.measureKeys = s.measureKeys || [];
+  setBroker(s.broker); setDb(s.db); renderRings(); renderGateways(); renderFeed(); connectStream();
+  refreshDb(); refreshCounts(); setInterval(refreshCounts, 30000);
+  showView({{ start_view|tojson }});
+}
+
+// ------------------------------------------------------------------ vues
+const VIEWS = {
+  rings:['Bagues','Une ligne par bague · mise à jour en direct'],
+  gateways:['Gateways','TV et téléphones connectés au broker'],
+  journal:['Journal','Événements en temps réel'],
+  pairing:['Appariements QR','Demandes créées par le scan du QR code · approuver ou refuser'],
+  tgusers:['Utilisateurs Telegram','Comptes du bot DANY, bagues affectées et Web App'],
+  webapp:['Sessions Web App','Qui a ouvert quelle bague dans la Mini App Telegram'],
+};
+const URLS = { pairing:'/telegram/pairing', tgusers:'/telegram/users', webapp:'/telegram/webapp' };
+function showView(v){
+  S.view = v;
+  document.querySelectorAll('.nav a').forEach(x => x.classList.toggle('on', x.dataset.view === v));
+  document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
+  $('#title').textContent = VIEWS[v][0]; $('#subtitle').textContent = VIEWS[v][1];
+  try { history.replaceState(null, '', URLS[v] || '/'); } catch(e){}
+  if (v === 'pairing') loadPairing();
+  if (v === 'tgusers') loadUsers();
+  if (v === 'webapp') loadWebapp();
+}
+async function getJson(url){
+  const r = await fetch(url);
+  if (r.status === 401) { location.href = '/login'; throw new Error('auth'); }
+  return r.json();
+}
+const who = u => [u.firstname, u.lastname].filter(Boolean).join(' ') || (u.pseudo ? '@' + u.pseudo : 'Utilisateur');
+const dt = v => v ? new Date(v).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+const agoIso = v => v ? ago(Math.floor(new Date(v).getTime()/1000)) : '—';
+const errBox = (id, msg) => { $(id).innerHTML = msg ? `<div class="err-box">❌ ${esc(msg)}</div>` : ''; };
+const kpi = (label, val, color, sub) => `<div class="kpi" style="--c:${color}"><span class="dot"></span><div class="l">${label}</div><div class="v">${val ?? '—'}</div><div class="s">${sub||''}</div></div>`;
+
+// ------------------------------------------------------------------ PostgreSQL
+function setDb(d){
+  if (!d) return;
+  S.db = d;
+  const b = $('#dbbadge');
+  b.className = 'badge ' + (d.connected ? 'b-ok' : 'b-err');
+  b.innerHTML = `<i></i>${d.connected ? 'Connecté' : 'Non connecté'}`;
+  const row = (k, v) => `<div><span>${k}</span><span>${esc(v)}</span></div>`;
+  $('#dbpanel').innerHTML = row('Base', d.database || '—') + row('Serveur', d.host || '—') +
+    row('Écritures OK', d.writes_ok) + row('Erreurs', d.write_errors) + row('File', d.queue) +
+    row('Dernière écriture', d.last_write_time ? agoIso(d.last_write_time) : '—') +
+    row('Droits par mesure', d.allowed_measures_column ? 'activés' : 'non (migration)') +
+    (d.last_error ? `<span class="err">⚠ ${esc(d.last_error)}</span>` : '');
+  const n = d.pending_pairing || 0, c = $('#c-pairing');
+  c.textContent = n; c.classList.toggle('alert', n > 0);
+}
+async function refreshCounts(){
+  try {
+    if (S.view !== 'tgusers') { const u = await getJson('/api/telegram/users'); if (u.ok) $('#c-users').textContent = u.users.length; }
+    if (S.view !== 'webapp') { const w = await getJson('/api/telegram/webapp'); if (w.ok) $('#c-webapp').textContent = w.stats.active_now ?? 0; }
+  } catch(e){}
+}
+async function refreshDb(){ try { const r = await getJson('/api/db/status'); setDb(r.db); } catch(e){} }
+$('#dbbox').onclick = () => $('#dbpanel').classList.toggle('on');
+
+// ------------------------------------------------------------------ appariements
+S.pfilter = 'pending';
+async function loadPairing(){
+  try {
+    const r = await getJson('/api/telegram/pairing?status=' + S.pfilter);
+    if (!r.ok) throw new Error(r.error);
+    errBox('#pairing-err');
+    ['pending','approved','rejected','cancelled'].forEach(k => { const el = $('#pn-' + k); if (el) el.textContent = r.counts[k] || 0; });
+    const c = $('#c-pairing'); c.textContent = r.counts.pending || 0; c.classList.toggle('alert', (r.counts.pending||0) > 0);
+    const ST = { pending:['b-warn pulse','En attente'], approved:['b-ok','Approuvée'], rejected:['b-err','Refusée'], cancelled:['b-mute','Annulée'] };
+    $('#pairing-body').innerHTML = r.requests.map(x => `<tr>
+      <td><b>#${x.request_id}</b><span class="sub">${dt(x.requested_at)} · ${agoIso(x.requested_at)}</span></td>
+      <td><b>${esc(who(x))}</b><span class="sub">${x.pseudo ? '@' + esc(x.pseudo) + ' · ' : ''}${x.user_active ? '' : '⚠ compte désactivé'}</span></td>
+      <td><b>${esc(x.ring_name)}</b><span class="sub mono">${esc(x.mac)}</span></td>
+      <td><span class="badge ${ST[x.status][0]}"><i></i>${ST[x.status][1]}</span></td>
+      <td>${x.decided_at ? `${dt(x.decided_at)}<span class="sub">${esc(x.decided_by_label || x.decided_by_source || '')}</span>` : '—'}</td>
+      <td class="act">${x.status === 'pending' ? `<div class="row">
+          <button class="btn primary" onclick="decide(${x.request_id},'approve')">✅ Approuver</button>
+          <button class="btn danger" onclick="decide(${x.request_id},'reject')">❌ Refuser</button></div>` : ''}</td>
+    </tr>`).join('');
+    $('#pairing-empty').style.display = r.requests.length ? 'none' : 'block';
+  } catch(e) { if (e.message !== 'auth') { errBox('#pairing-err', 'PostgreSQL : ' + e.message); $('#pairing-body').innerHTML = ''; $('#pairing-empty').style.display = 'none'; } }
+}
+async function decide(id, action){
+  if (!confirm(action === 'approve' ? 'Approuver cette demande ? La bague sera affectée et l\'utilisateur prévenu sur Telegram.' : 'Refuser cette demande ? L\'utilisateur sera prévenu sur Telegram.')) return;
+  const res = await post(`/api/telegram/pairing/${id}/${action}`);
+  if (!res.ok) return toast('error', 'Appariement', res.error);
+  toast(action === 'approve' ? 'ok' : 'warn', action === 'approve' ? 'Demande approuvée' : 'Demande refusée',
+        res.notification_sent ? 'Message Telegram envoyé' : 'Message non envoyé : ' + (res.notification_error || ''));
+  loadPairing(); refreshDb();
+}
+document.querySelectorAll('#pfilters .chip').forEach(c => c.onclick = () => { S.pfilter = c.dataset.p; document.querySelectorAll('#pfilters .chip').forEach(x => x.classList.toggle('on', x === c)); loadPairing(); });
+
+// ------------------------------------------------------------------ utilisateurs Telegram
+S.ufilter = 'all'; S.users = [];
+async function loadUsers(){
+  try {
+    const r = await getJson('/api/telegram/users'); if (!r.ok) throw new Error(r.error);
+    errBox('#users-err'); S.users = r.users; renderUsers();
+  } catch(e) { if (e.message !== 'auth') { errBox('#users-err', 'PostgreSQL : ' + e.message); $('#users-body').innerHTML = ''; $('#users-empty').style.display = 'none'; } }
+}
+function userMatch(u, f){
+  const q = S.q.trim().toLowerCase();
+  if (q && ![u.firstname, u.lastname, u.pseudo, u.id_telegram].join(' ').toLowerCase().includes(q)) return false;
+  return f === 'active' ? u.active : f === 'inactive' ? !u.active : f === 'webapp' ? u.webapp_active > 0 : f === 'norings' ? !u.rings_count : true;
+}
+function renderUsers(){
+  const all = S.users;
+  $('#c-users').textContent = all.length;
+  $('#u-stats').innerHTML = kpi('Utilisateurs', all.length, 'var(--accent)', 'ont fait /start') +
+    kpi('Actifs', all.filter(u => u.active).length, 'var(--ok)', 'comptes autorisés') +
+    kpi('Désactivés', all.filter(u => !u.active).length, 'var(--err)', 'bloqués par l\'admin') +
+    kpi('Web App ouverte', all.filter(u => u.webapp_active > 0).length, 'var(--spo2)', 'en ce moment') +
+    kpi('Sans bague', all.filter(u => !u.rings_count).length, 'var(--warn)', 'aucune affectation active');
+  document.querySelectorAll('#ufilters .chip').forEach(c => c.querySelector('.n').textContent = all.filter(u => userMatch(u, c.dataset.u)).length);
+  const list = all.filter(u => userMatch(u, S.ufilter));
+  $('#users-body').innerHTML = list.map(u => `<tr class="${u.active ? '' : 'offline'}">
+    <td class="keep"><div class="ring-cell"><div class="avatar" style="background:linear-gradient(135deg,#2aa1e0,#1c7fc0)">${esc(who(u).slice(0,2).toUpperCase())}</div><div><b>${esc(who(u))}</b><small>${u.pseudo ? '@' + esc(u.pseudo) : ''}</small></div></div></td>
+    <td class="mono">${u.id_telegram}</td>
+    <td>${esc({fr:'🇫🇷 FR',en:'🇬🇧 EN',ar:'🇹🇳 AR'}[(u.langue_user||'').slice(0,2)] || u.langue_user || '—')}</td>
+    <td><div class="pill-list">${(u.rings||[]).map(x => `<span class="${x.access_active ? '' : 'off'}" style="cursor:pointer" title="Gérer les droits" onclick="openTg('${esc((x.mac||'').toUpperCase())}')">💍 ${esc(x.name)}</span>`).join('') || '<span style="opacity:.6">aucune</span>'}</div></td>
+    <td>${u.webapp_active > 0 ? '<span class="badge b-ok pulse"><i></i>Ouverte</span>' : `<span class="badge b-mute"><i></i>Fermée</span>`}<span class="sub">${u.webapp_last ? 'vue ' + agoIso(u.webapp_last) : 'jamais ouverte'}</span></td>
+    <td>${dt(u.date_last_connexion)}<span class="sub">1ʳᵉ : ${dt(u.date_premiere_connexion)}</span></td>
+    <td class="keep act"><label class="sw" title="${u.active ? 'Désactiver' : 'Activer'} le compte"><input type="checkbox" ${u.active ? 'checked' : ''} onchange="setUserActive(${u.id}, this.checked)"><span></span></label></td>
+  </tr>`).join('');
+  $('#users-empty').style.display = list.length ? 'none' : 'block';
+}
+async function setUserActive(id, active){
+  if (!active && !confirm('Désactiver ce compte ? L\'utilisateur ne pourra plus utiliser le bot.')) return renderUsers();
+  const res = await post(`/api/telegram/users/${id}/active`, { active });
+  if (!res.ok) toast('error', 'Utilisateur', res.error); else toast('info', active ? 'Compte activé' : 'Compte désactivé', who(res.user));
+  loadUsers();
+}
+document.querySelectorAll('#ufilters .chip').forEach(c => c.onclick = () => { S.ufilter = c.dataset.u; document.querySelectorAll('#ufilters .chip').forEach(x => x.classList.toggle('on', x === c)); renderUsers(); });
+
+// ------------------------------------------------------------------ sessions Web App
+S.wfilter = 'all'; S.sessions = [];
+async function loadWebapp(){
+  try {
+    const r = await getJson('/api/telegram/webapp'); if (!r.ok) throw new Error(r.error);
+    errBox('#webapp-err'); S.sessions = r.sessions;
+    const st = r.stats || {};
+    $('#c-webapp').textContent = st.active_now ?? 0;
+    $('#w-stats').innerHTML = kpi('Actives maintenant', st.active_now, 'var(--ok)', `heartbeat &lt; ${r.activeSeconds} s`) +
+      kpi("Aujourd'hui", st.today, 'var(--spo2)', 'sessions ouvertes') + kpi('Total', st.total_sessions, 'var(--accent)', 'depuis le début') +
+      kpi('Utilisateurs', st.unique_users, 'var(--bp)', 'différents') + kpi('Bagues', st.unique_rings, 'var(--steps)', 'consultées');
+    renderWebapp();
+  } catch(e) { if (e.message !== 'auth') { errBox('#webapp-err', 'PostgreSQL : ' + e.message); $('#webapp-body').innerHTML = ''; $('#webapp-empty').style.display = 'none'; } }
+}
+function dur(s){ if (s == null) return '—'; s = Math.max(0, s); return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s/60)} min ${s%60} s` : `${Math.floor(s/3600)} h ${Math.floor(s%3600/60)} min`; }
+function renderWebapp(){
+  const q = S.q.trim().toLowerCase();
+  const m = (x, f) => (!q || [x.firstname, x.lastname, x.pseudo, x.id_telegram, x.ring_name, x.mac].join(' ').toLowerCase().includes(q)) &&
+    (f === 'active' ? x.is_active : f === 'closed' ? !x.is_active : true);
+  document.querySelectorAll('#wfilters .chip').forEach(c => c.querySelector('.n').textContent = S.sessions.filter(x => m(x, c.dataset.w)).length);
+  const list = S.sessions.filter(x => m(x, S.wfilter));
+  $('#webapp-body').innerHTML = list.map(x => `<tr class="${x.is_active ? '' : ''}">
+    <td><b>${esc(who(x))}</b><span class="sub">${x.pseudo ? '@' + esc(x.pseudo) : ''}</span></td>
+    <td class="mono">${x.id_telegram}</td>
+    <td><b>${esc(x.ring_name)}</b><span class="sub">${esc(x.model || '')}</span></td>
+    <td class="mono" style="font-size:12px">${esc(x.mac)}</td>
+    <td>${dt(x.opened_at)}</td>
+    <td>${dt(x.last_seen_at)}<span class="sub">${agoIso(x.last_seen_at)}</span></td>
+    <td>${x.closed_at ? dt(x.closed_at) : '—'}</td>
+    <td>${dur(x.duration_s)}</td>
+    <td>${x.is_active ? '<span class="badge b-ok pulse"><i></i>Active</span>' : x.closed_at ? '<span class="badge b-mute"><i></i>Fermée</span>' : '<span class="badge b-warn"><i></i>Inactive</span>'}</td>
+  </tr>`).join('');
+  $('#webapp-empty').style.display = list.length ? 'none' : 'block';
+}
+document.querySelectorAll('#wfilters .chip').forEach(c => c.onclick = () => { S.wfilter = c.dataset.w; document.querySelectorAll('#wfilters .chip').forEach(x => x.classList.toggle('on', x === c)); renderWebapp(); });
+setInterval(() => { if (S.view === 'webapp' && !document.hidden) loadWebapp(); }, 5000);
+setInterval(() => { if (S.view === 'tgusers' && !document.hidden && !document.activeElement.closest?.('#v-tgusers')) loadUsers(); }, 15000);
+
+// ------------------------------------------------------------------ accès Telegram d'une bague
+const RIGHTS = [['can_view','Voir la bague'],['can_view_history','Historique'],['can_live','Lancer des mesures'],['can_receive_alerts','Alertes'],['can_admin','Admin bague'],['active','Affectation active']];
+const MLABEL = { hr:'❤️ HR', spo2:'🫁 SpO₂', temp:'🌡 Temp.', bp:'🩺 Tension', hrv:'💓 HRV', stress:'⚡ Stress', all:'⚡ Tout' };
+S.tg = null;
+async function openTg(mac){
+  closeMenus();
+  $('#tgmodal').classList.add('on');
+  $('#tg-title').textContent = 'Accès Telegram'; $('#tg-sub').textContent = mac;
+  $('#tg-body').innerHTML = '<div class="empty">Chargement…</div>';
+  try {
+    const r = await getJson(`/api/telegram/ring/${mac}`);
+    if (!r.ok) { $('#tg-body').innerHTML = `<div class="err-box">❌ ${esc(r.error)}</div>`; return; }
+    S.tg = Object.assign(r, { mac });
+    renderTg();
+  } catch(e) { if (e.message !== 'auth') $('#tg-body').innerHTML = `<div class="err-box">❌ ${esc(e.message)}</div>`; }
+}
+function closeTg(){ $('#tgmodal').classList.remove('on'); S.tg = null; }
+function accBlock(a, isNew){
+  const id = isNew ? 'new' : a.access_id;
+  const general = !a.allowed_measures || !a.allowed_measures.length;
+  const sw = (k, lbl) => `<label class="right"><span class="sw"><input type="checkbox" data-r="${k}" ${a[k] ? 'checked' : ''}><span></span></span>${lbl}</label>`;
+  const measures = S.tg.allowedMeasures ? `<div class="measures" data-m>
+      <b style="font-size:12px;color:var(--muted)">Mesures autorisées :</b>
+      <label><input type="radio" name="mode-${id}" value="all" ${general ? 'checked' : ''} onchange="toggleMeasures(this)"> Toutes (droit général)</label>
+      <label><input type="radio" name="mode-${id}" value="pick" ${general ? '' : 'checked'} onchange="toggleMeasures(this)"> Choisir :</label>
+      ${S.tg.measureKeys.map(k => `<label><input type="checkbox" value="${k}" ${general || a.allowed_measures.includes(k) ? 'checked' : ''} ${general ? 'disabled' : ''}> ${MLABEL[k] || k}</label>`).join('')}
+    </div>` : '';
+  return `<div class="acc ${a.active === false ? 'off' : ''}" data-id="${id}" data-user="${a.telegram_user_id || ''}">
+    <div class="top">
+      ${isNew ? `<select class="inp" style="flex:1;font-family:inherit" data-user-select><option value="">Choisir un utilisateur Telegram…</option>${
+        S.tg.users.filter(u => !S.tg.access.some(x => x.telegram_user_id === u.id)).map(u => `<option value="${u.id}">${esc(who(u))}${u.pseudo ? ' (@' + esc(u.pseudo) + ')' : ''} · ${u.id_telegram}</option>`).join('')}</select>`
+      : `<div class="avatar" style="background:linear-gradient(135deg,#2aa1e0,#1c7fc0)">${esc(who(a).slice(0,2).toUpperCase())}</div>
+         <div class="who"><b>${esc(who(a))}</b><small>${a.pseudo ? '@' + esc(a.pseudo) + ' · ' : ''}ID ${a.id_telegram}${a.user_active ? '' : ' · ⚠ compte désactivé'}</small></div>`}
+      <div class="row" style="margin-left:auto">
+        <button class="btn primary" onclick="saveAccess('${id}')">${isNew ? '✚ Affecter' : '💾 Enregistrer'}</button>
+        ${isNew ? '' : `<button class="btn danger" onclick="removeAccess(${a.access_id})">Retirer</button>`}
+      </div>
+    </div>
+    <div class="rights">${RIGHTS.filter(([k]) => !(isNew && k === 'active')).map(([k, l]) => sw(k, l)).join('')}</div>
+    ${measures}
+  </div>`;
+}
+function renderTg(){
+  const t = S.tg;
+  $('#tg-title').textContent = `Accès Telegram · ${t.ring.name}`;
+  $('#tg-sub').textContent = `${t.ring.mac}${t.ring.model ? ' · ' + t.ring.model : ''} · ${t.access.filter(a => a.active).length} utilisateur(s) actif(s)`;
+  const note = t.allowedMeasures ? '' : `<div class="note">ℹ Droits <b>par mesure</b> non disponibles : exécutez <span class="mono">qring_admin_migration.sql</span> (ajoute la colonne <span class="mono">allowed_measures</span>). En attendant, « Lancer des mesures » autorise toutes les mesures.</div>`;
+  $('#tg-body').innerHTML = note +
+    `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Chaque affectation ou retrait envoie un message à l'utilisateur sur Telegram. Une simple modification de droits n'envoie rien.</div>` +
+    (t.access.length ? t.access.map(a => accBlock(a, false)).join('') : '<div class="empty" style="padding:24px">Aucun utilisateur affecté à cette bague.</div>') +
+    `<div style="font-weight:800;margin:18px 0 8px">✚ Affecter un nouvel utilisateur</div>` +
+    accBlock({ can_view:true, can_view_history:true, can_live:true, can_receive_alerts:false, can_admin:false, active:true, allowed_measures:null }, true);
+}
+function toggleMeasures(radio){
+  const box = radio.closest('[data-m]'), pick = radio.value === 'pick';
+  box.querySelectorAll('input[type=checkbox]').forEach(c => { c.disabled = !pick; if (!pick) c.checked = true; });
+}
+async function saveAccess(id){
+  const el = document.querySelector(`.acc[data-id="${id}"]`);
+  const body = {};
+  if (id === 'new') {
+    body.telegram_user_id = el.querySelector('[data-user-select]').value;
+    if (!body.telegram_user_id) return toast('warn', 'Affectation', 'Choisissez un utilisateur');
+    body.active = true;
+  } else body.telegram_user_id = el.dataset.user;
+  el.querySelectorAll('[data-r]').forEach(c => body[c.dataset.r] = c.checked);
+  const m = el.querySelector('[data-m]');
+  if (m) {
+    const pick = m.querySelector('input[type=radio][value=pick]').checked;
+    body.allowed_measures = pick ? [...m.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value) : [];
+    if (pick && !body.allowed_measures.length && body.can_live) return toast('warn', 'Mesures', 'Cochez au moins une mesure, ou désactivez « Lancer des mesures »');
+  }
+  const res = await post(`/api/telegram/ring/${S.tg.mac}`, body);
+  if (!res.ok) return toast('error', 'Affectation', res.error);
+  toast('ok', id === 'new' ? 'Utilisateur affecté' : 'Droits enregistrés',
+        res.notification_sent ? 'Message Telegram envoyé ✅' : res.notification_error ? 'Message non envoyé : ' + res.notification_error : 'Aucun message (droits seulement)');
+  openTg(S.tg.mac);
+}
+async function removeAccess(accessId){
+  if (!confirm('Retirer cet utilisateur de la bague ? Il sera prévenu sur Telegram.')) return;
+  const r = await fetch(`/api/telegram/ring/${S.tg.mac}/${accessId}`, { method:'DELETE' });
+  const res = await r.json();
+  if (!res.ok) return toast('error', 'Retrait', res.error);
+  toast('warn', 'Utilisateur retiré', res.notification_sent ? 'Message Telegram envoyé ✅' : 'Message non envoyé : ' + (res.notification_error || ''));
+  openTg(S.tg.mac);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeTg(); } });
+
+// navigation / filtres / thème
+document.querySelectorAll('.nav a').forEach(a => a.onclick = () => {
+  document.querySelectorAll('.nav a').forEach(x => x.classList.toggle('on', x === a));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + a.dataset.view));
+  S.view = a.dataset.view;
+  showView(a.dataset.view);
+});
+document.querySelectorAll('#filters .chip').forEach(c => c.onclick = () => { S.filter = c.dataset.f; document.querySelectorAll('#filters .chip').forEach(x => x.classList.toggle('on', x === c)); renderRings(); });
+document.querySelectorAll('#jfilters .chip').forEach(c => c.onclick = () => { S.jfilter = c.dataset.j; document.querySelectorAll('#jfilters .chip').forEach(x => x.classList.toggle('on', x === c)); renderFeed(); });
+$('#q').oninput = e => { S.q = e.target.value; renderRings(); if (S.view === 'tgusers') renderUsers(); if (S.view === 'webapp') renderWebapp(); };
+const applyTheme = t => { document.documentElement.dataset.theme = t; localStorageSet('theme', t); };
+applyTheme(localStorageGet('theme') || 'dark');
+$('#theme').onclick = () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+const soundBtn = () => $('#sound').textContent = soundOn ? '🔔 Son' : '🔕 Son';
+soundBtn(); $('#sound').onclick = () => { soundOn = !soundOn; localStorageSet('sound', soundOn ? '1' : '0'); soundBtn(); if (soundOn) beep(); };
+
+// horloge + « il y a X s » + chronos des mesures
+setInterval(() => {
+  $('#clock').textContent = new Date().toLocaleTimeString('fr-FR');
+  if (S.view === 'rings' && !document.querySelector('.dd.on')) renderRings();
+}, 1000);
+init();
+</script>
+</body>
+</html>

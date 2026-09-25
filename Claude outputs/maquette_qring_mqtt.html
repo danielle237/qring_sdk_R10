@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette QRing MQTT</title>
+<style>
+:root{
+  --bg:#eef1f6; --head:#4a5170; --phone:#0f1320; --surface:#151a29; --card:#1e2438; --card2:#252c45; --line:#2a3150;
+  --text:#eef1fa; --muted:#8b93b0; --accent:#6c8cff; --ok:#3ecf8e; --warn:#ffb547; --err:#ff6b6b;
+  --hr:#ff5d73; --spo2:#4fc3f7; --temp:#ffa04d; --bp:#b18cff; --hrv:#3ecf8e; --stress:#ffd23f;
+  --deep:#5b6cff; --light:#8fa3ff; --rem:#c38bff; --awake:#ffb547;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#0a0c12; --head:#aab1cc; } }
+:root[data-theme="dark"]{ --bg:#0a0c12; --head:#aab1cc; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--text);padding:28px 16px 40px}
+.h1{color:var(--head);font-size:22px;font-weight:800;text-align:center}
+.sub{color:#8b93b0;font-size:13px;text-align:center;margin:6px 0 26px}
+.part{color:var(--head);font-size:15px;font-weight:700;text-align:center;margin:44px 0 18px;letter-spacing:.02em}
+.row{display:flex;gap:26px;justify-content:center;flex-wrap:wrap}
+.label{color:#8b93b0;font-size:11.5px;text-align:center;margin-top:10px;letter-spacing:.05em;text-transform:uppercase;max-width:300px}
+
+/* phone */
+.phone{width:300px;max-width:100%;height:640px;background:var(--phone);border-radius:36px;padding:12px 12px 0;border:6px solid #000;box-shadow:0 18px 44px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden}
+.sb{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);padding:2px 10px 8px}
+.top{display:flex;align-items:center;justify-content:space-between;padding:0 6px 10px}
+.top h2{font-size:19px;font-weight:750}
+.ic{width:32px;height:32px;border-radius:50%;background:var(--card);display:grid;place-items:center;color:var(--muted);font-size:14px}
+.body{flex:1;overflow:hidden;padding:0 2px;display:flex;flex-direction:column;gap:9px}
+.nav{display:flex;justify-content:space-around;padding:9px 0 14px;background:var(--surface);margin:8px -12px 0;border-top:1px solid var(--line)}
+.nav div{font-size:9.5px;color:var(--muted);text-align:center}
+.nav b{display:block;font-size:15px;margin-bottom:1px;font-weight:400}
+.nav .on{color:var(--accent)}
+
+/* bits */
+.conn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pill{background:var(--card);border-radius:14px;padding:9px 11px}
+.pill .t{font-size:10px;color:var(--muted);margin-bottom:3px}
+.pill .v{font-size:12.5px;font-weight:650;display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(62,207,142,.18);flex:none}
+.dot.r{background:var(--err);box-shadow:0 0 0 3px rgba(255,107,107,.18)}
+.dot.o{background:var(--warn);box-shadow:0 0 0 3px rgba(255,181,71,.18)}
+.ring{background:linear-gradient(135deg,#27305a,#1e2438);border-radius:18px;padding:11px 12px;display:flex;align-items:center;gap:12px}
+.bat{width:50px;height:50px;border-radius:50%;background:conic-gradient(var(--ok) 0 82%,#2a3150 82% 100%);display:grid;place-items:center;flex:none}
+.bat span{width:40px;height:40px;border-radius:50%;background:#222a47;display:grid;place-items:center;font-size:12px;font-weight:750}
+.ring .n{font-weight:750;font-size:14px}
+.ring .m{font-size:10.5px;color:var(--muted);margin-top:1px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.card{background:var(--card);border-radius:16px;padding:10px 11px;position:relative;min-height:92px}
+.hd{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted)}
+.hd i{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-style:normal;font-size:11px;flex:none}
+.val{font-size:24px;font-weight:750;margin-top:7px;letter-spacing:-.02em;white-space:nowrap}
+.val small{font-size:11px;color:var(--muted);font-weight:500;margin-left:2px}
+.ago{font-size:9.5px;color:var(--muted);margin-top:2px;padding-right:28px}
+.go{position:absolute;right:9px;bottom:9px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:10px;color:#0f1320;font-weight:800}
+.meas{outline:1.5px solid var(--spo2)}
+.spin{width:16px;height:16px;border-radius:50%;border:2.5px solid rgba(79,195,247,.25);border-top-color:var(--spo2);display:inline-block;vertical-align:-3px;margin-right:6px}
+.prog{height:4px;background:#2a3150;border-radius:3px;margin-top:8px;overflow:hidden}
+.prog b{display:block;height:100%;background:var(--spo2);border-radius:3px}
+.big{background:var(--accent);color:#fff;border-radius:14px;padding:12px;text-align:center;font-weight:700;font-size:13.5px}
+.dim{opacity:.42;filter:grayscale(.6)}
+.banner{background:rgba(255,107,107,.13);border:1px solid rgba(255,107,107,.35);border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:10px}
+.banner .tx{flex:1}
+.banner .a{font-size:13px;font-weight:750;color:var(--err)}
+.banner .b{font-size:10.5px;color:var(--muted);margin-top:1px}
+.btn2{font-size:11px;font-weight:700;padding:7px 10px;border-radius:10px;background:var(--err);color:#fff;white-space:nowrap}
+.sec{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin:4px 6px 0}
+.form{background:var(--card);border-radius:16px;padding:2px 13px}
+.f{padding:8px 0;border-bottom:1px solid var(--line)}
+.f:last-child{border:none}
+.f .k{font-size:10px;color:var(--muted)}
+.f .x{font-size:12.5px;margin-top:1px}
+.sw{display:flex;justify-content:space-between;align-items:center}
+.tg{width:34px;height:20px;border-radius:999px;background:var(--accent);position:relative;flex:none}
+.tg:after{content:"";position:absolute;right:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips span{font-size:10.5px;padding:5px 10px;border-radius:999px;background:var(--card);color:var(--muted)}
+.chips .a{background:var(--accent);color:#fff}
+.ev{background:var(--card);border-radius:13px;padding:9px 11px}
+.ev .r{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.tag{font-size:9.5px;font-weight:750;padding:2px 7px;border-radius:6px}
+.in{background:rgba(108,140,255,.18);color:var(--accent)}
+.out{background:rgba(62,207,142,.16);color:var(--ok)}
+.er{background:rgba(255,107,107,.16);color:var(--err)}
+.st{background:rgba(255,181,71,.16);color:var(--warn)}
+.time{color:var(--muted);font-size:9.5px}
+.tp{color:var(--muted);font-size:9.5px;margin-bottom:2px;font-family:ui-monospace,Menlo,Consolas,monospace}
+code{display:block;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#c7cdea;word-break:break-all;line-height:1.45}
+.fn{display:flex;flex-wrap:wrap;gap:5px;padding:8px 0}
+.fn span{font-size:10px;padding:3px 8px;border-radius:7px;background:rgba(62,207,142,.14);color:var(--ok)}
+.fn span.no{background:rgba(139,147,176,.12);color:var(--muted);text-decoration:line-through}
+.dev{background:var(--card);border-radius:14px;padding:11px 12px;display:flex;align-items:center;gap:11px}
+.dev .nm{font-weight:700;font-size:13px}
+.dev .mc{font-size:10px;color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace}
+.dev .rs{margin-left:auto;display:flex;align-items:flex-end;gap:2px;height:16px}
+.dev .rs i{width:4px;background:var(--ok);border-radius:2px;display:block}
+.dev.sel{outline:1.5px solid var(--accent)}
+.radar{height:120px;border-radius:18px;background:radial-gradient(circle at 50% 50%,rgba(108,140,255,.35) 0 8%,rgba(108,140,255,.12) 9% 30%,rgba(108,140,255,.06) 31% 55%,transparent 56%),var(--card);display:grid;place-items:center;font-size:12px;color:var(--muted);position:relative}
+.radar b{position:absolute;bottom:10px;font-weight:500;font-size:11px}
+.stat3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.mini{background:var(--card);border-radius:14px;padding:9px 10px}
+.mini .l{font-size:9.5px;color:var(--muted)}
+.mini .n{font-size:17px;font-weight:750;margin-top:3px}
+.mini .n small{font-size:10px;color:var(--muted);font-weight:500}
+.steps{background:var(--card);border-radius:18px;padding:12px;display:flex;align-items:center;gap:14px}
+.donut{width:84px;height:84px;border-radius:50%;background:conic-gradient(var(--ok) 0 68%,#2a3150 68% 100%);display:grid;place-items:center;flex:none}
+.donut span{width:68px;height:68px;border-radius:50%;background:var(--card);display:grid;place-items:center;text-align:center;font-size:16px;font-weight:800;line-height:1.1}
+.donut span small{display:block;font-size:9px;color:var(--muted);font-weight:500}
+.panel{background:var(--card);border-radius:16px;padding:10px 12px}
+.panel .ttl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px}
+.panel .ttl b{color:var(--text);font-weight:650}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:9.5px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.tabs{display:flex;background:var(--card);border-radius:12px;padding:3px}
+.tabs span{flex:1;text-align:center;font-size:11px;padding:6px 0;border-radius:9px;color:var(--muted)}
+.tabs .a{background:var(--card2);color:var(--text);font-weight:650}
+svg{display:block;width:100%}
+
+/* tv */
+.tvwrap{max-width:1000px;margin:0 auto}
+.tv{aspect-ratio:16/9;background:var(--phone);border:10px solid #000;border-radius:14px;display:flex;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.tvside{width:22%;background:var(--surface);padding:18px 14px;display:flex;flex-direction:column;gap:5px}
+.tvlogo{font-weight:800;font-size:16px;margin-bottom:12px}
+.tvnav{padding:9px 12px;border-radius:12px;font-size:13px;color:var(--muted)}
+.tvnav.on{background:var(--card);color:var(--text)}
+.tvmain{flex:1;padding:18px 22px;display:flex;flex-direction:column;gap:12px}
+.tvtitle{font-size:20px;font-weight:750;display:flex;justify-content:space-between;align-items:center}
+.tvtitle span{font-size:12px;color:var(--muted);font-weight:500}
+.tvgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.tc{background:var(--card);border-radius:16px;padding:12px;min-height:96px}
+.tc .val{font-size:23px}
+.tc.focus{outline:3px solid #fff;transform:scale(1.07);box-shadow:0 8px 24px rgba(0,0,0,.5);position:relative;z-index:1}
+.tc.all{background:var(--accent);display:grid;place-items:center;font-weight:750;font-size:14px}
+.full{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(circle at 50% 42%,rgba(79,195,247,.14),transparent 60%),var(--phone)}
+.bigring{width:210px;height:210px;border-radius:50%;background:conic-gradient(var(--spo2) 0 57%,#232a44 57% 100%);display:grid;place-items:center}
+.bigring span{width:180px;height:180px;border-radius:50%;background:var(--phone);display:grid;place-items:center;text-align:center}
+.bigring .v{font-size:46px;font-weight:800;color:var(--spo2);line-height:1}
+.bigring .u{font-size:13px;color:var(--muted);margin-top:6px}
+.tvbtn{padding:11px 26px;border-radius:14px;background:var(--card);font-size:14px;font-weight:650}
+.tvbtn.focus{outline:3px solid #fff;background:var(--card2)}
+@media (max-width:760px){.tv{aspect-ratio:auto;flex-direction:column}.tvside{width:auto}.tvgrid{grid-template-columns:repeat(2,1fr)}.bigring{width:170px;height:170px}.bigring span{width:144px;height:144px}}
+.note{max-width:980px;margin:34px auto 0;color:#7b82a0;font-size:13px;line-height:1.65;text-align:center}
+</style>
+</head>
+<body>
+<div class="h1">QRing MQTT : interfaces</div>
+<p class="sub">Maquette · Jetpack Compose · Material 3 · Téléphone + Android TV</p>
+
+<div class="part">TÉLÉPHONE</div>
+<div class="row">
+
+<!-- 1 Accueil -->
+<div>
+<div class="phone">
+  <div class="sb"><span>14:32</span><span>● 5G 87%</span></div>
+  <div class="top"><h2>Ma bague</h2><div class="ic">⟳</div></div>
+  <div class="body">
+    <div class="conn">
+      <div class="pill"><div class="t">Bague</div><div class="v"><span class="dot"></span>Connectée</div></div>
+      <div class="pill"><div class="t">Broker MQTT</div><div class="v"><span class="dot"></span>En ligne</div></div>
+    </div>
+    <div class="ring"><div class="bat"><span>82%</span></div><div><div class="n">R06_A4F1 <span style="font-size:10px;color:var(--ok)">⚡ en charge</span></div><div class="m">C4:A1:5F:22:A4:F1 · fw 2.1.8</div><div class="m">Service actif en arrière-plan</div></div></div>
+    <div class="grid">
+      <div class="card"><div class="hd"><i style="background:rgba(255,93,115,.18);color:var(--hr)">♥</i>Cœur</div><div class="val">72<small>bpm</small></div><div class="ago">RRI 833 ms · 2 min</div><div class="go" style="background:var(--hr)">▶</div></div>
+      <div class="card meas"><div class="hd"><i style="background:rgba(79,195,247,.18);color:var(--spo2)">O₂</i>SpO2</div><div style="margin-top:10px;font-size:13px;font-weight:650;color:var(--spo2)"><span class="spin"></span>Mesure…</div><div class="prog"><b style="width:57%"></b></div><div class="ago">17 s / 30 s · MQTT</div></div>
+      <div class="card"><div class="hd"><i style="background:rgba(255,160,77,.18);color:var(--temp)">🌡</i>Température</div><div class="val">36.6<small>°C</small></div><div class="ago">1 h</div><div class="go" style="background:var(--temp)">▶</div></div>
+      <div class="card"><div class="hd"><i style="background:rgba(177,140,255,.18);color:var(--bp)">◎</i>Tension</div><div class="val" style="font-size:20px">120/80<small>mmHg</small></div><div class="ago">3 h</div><div class="go" style="background:var(--bp)">▶</div></div>
+      <div class="card"><div class="hd"><i style="background:rgba(62,207,142,.18);color:var(--hrv)">∿</i>HRV</div><div class="val">48<small>ms</small></div><div class="ago">En attente…</div><div class="go" style="background:#39405c;color:var(--muted)">⏸</div></div>
+      <div class="card"><div class="hd"><i style="background:rgba(255,210,63,.18);color:var(--stress)">⚡</i>Stress</div><div class="val">31<small>/100</small></div><div class="ago">hier</div><div class="go" style="background:var(--stress)">▶</div></div>
+    </div>
+    <div class="big">Tout mesurer</div>
+  </div>
+  <div class="nav"><div class="on"><b>◉</b>Accueil</div><div><b>👣</b>Activité</div><div><b>📈</b>Historique</div><div><b>≡</b>Journal</div><div><b>⚙</b>Réglages</div></div>
+</div>
+<div class="label">1 · Accueil : mesure SpO2 en cours, HRV en attente</div>
+</div>
+
+<!-- 2 Déconnectée -->
+<div>
+<div class="phone">
+  <div class="sb"><span>14:40</span><span>● 5G 86%</span></div>
+  <div class="top"><h2>Ma bague</h2><div class="ic">⟳</div></div>
+  <div class="body">
+    <div class="banner"><span style="font-size:20px">⚠</span><div class="tx"><div class="a">Bague déconnectée</div><div class="b">Reconnexion dans 10 s · tentative 2</div></div><div class="btn2">Reconnecter</div></div>
+    <div class="conn">
+      <div class="pill"><div class="t">Bague</div><div class="v"><span class="dot r"></span>Déconnectée</div></div>
+      <div class="pill"><div class="t">Broker MQTT</div><div class="v"><span class="dot"></span>En ligne</div></div>
+    </div>
+    <div class="grid dim">
+      <div class="card"><div class="hd"><i style="background:rgba(255,93,115,.18);color:var(--hr)">♥</i>Cœur</div><div class="val">72<small>bpm</small></div><div class="ago">dernière valeur · 10 min</div></div>
+      <div class="card"><div class="hd"><i style="background:rgba(79,195,247,.18);color:var(--spo2)">O₂</i>SpO2</div><div class="val">97<small>%</small></div><div class="ago">dernière valeur · 8 min</div></div>
+      <div class="card"><div class="hd"><i style="background:rgba(255,160,77,.18);color:var(--temp)">🌡</i>Température</div><div class="val">36.6<small>°C</small></div><div class="ago">1 h</div></div>
+      <div class="card"><div class="hd"><i style="background:rgba(177,140,255,.18);color:var(--bp)">◎</i>Tension</div><div class="val" style="font-size:20px">120/80<small>mmHg</small></div><div class="ago">3 h</div></div>
+    </div>
+    <div class="ev" style="border:1px solid rgba(255,107,107,.3)"><div class="r"><span class="tag er">⬆ ERREUR</span><span class="time">14:39:52</span></div><div class="tp">…/hr</div><code>{"reqId":"b2","type":"hr","status":"error","error":"ring_disconnected"}</code></div>
+  </div>
+  <div class="nav"><div class="on"><b>◉</b>Accueil</div><div><b>👣</b>Activité</div><div><b>📈</b>Historique</div><div><b>≡</b>Journal</div><div><b>⚙</b>Réglages</div></div>
+</div>
+<div class="label">2 · Bague déconnectée : cartes grisées, erreur renvoyée sur MQTT</div>
+</div>
+
+<!-- 3 Activité & sommeil -->
+<div>
+<div class="phone">
+  <div class="sb"><span>08:05</span><span>● 5G 91%</span></div>
+  <div class="top"><h2>Activité</h2><div class="ic">⟳</div></div>
+  <div class="body">
+    <div class="tabs"><span>Hier</span><span class="a">Aujourd'hui</span></div>
+    <div class="steps"><div class="donut"><span>6 842<small>/ 10 000 pas</small></span></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+        <div><div style="font-size:10px;color:var(--muted)">Distance</div><div style="font-weight:750">4.9 km</div></div>
+        <div><div style="font-size:10px;color:var(--muted)">Calories</div><div style="font-weight:750">312 kcal</div></div>
+        <div><div style="font-size:10px;color:var(--muted)">Sédentaire</div><div style="font-weight:750;color:var(--warn)">3 h 20</div></div>
+      </div></div>
+    <div class="panel"><div class="ttl"><b>Pas par heure</b><span>0h → 24h</span></div>
+      <svg viewBox="0 0 240 50" height="50"><g fill="#3ecf8e">
+      <rect x="2" y="48" width="7" height="2" rx="1"/><rect x="12" y="48" width="7" height="2" rx="1"/><rect x="22" y="48" width="7" height="2" rx="1"/><rect x="32" y="48" width="7" height="2" rx="1"/><rect x="42" y="48" width="7" height="2" rx="1"/><rect x="52" y="48" width="7" height="2" rx="1"/><rect x="62" y="36" width="7" height="14" rx="1.5"/><rect x="72" y="20" width="7" height="30" rx="1.5"/><rect x="82" y="30" width="7" height="20" rx="1.5"/><rect x="92" y="40" width="7" height="10" rx="1.5"/><rect x="102" y="42" width="7" height="8" rx="1.5"/><rect x="112" y="26" width="7" height="24" rx="1.5"/><rect x="122" y="14" width="7" height="36" rx="1.5"/><rect x="132" y="38" width="7" height="12" rx="1.5"/><rect x="142" y="42" width="7" height="8" rx="1.5"/><rect x="152" y="40" width="7" height="10" rx="1.5"/><rect x="162" y="30" width="7" height="20" rx="1.5"/><rect x="172" y="8" width="7" height="42" rx="1.5"/><rect x="182" y="22" width="7" height="28" rx="1.5"/><rect x="192" y="38" width="7" height="12" rx="1.5" opacity=".35"/></g></svg></div>
+    <div class="panel"><div class="ttl"><b>Sommeil · 7 h 12</b><span>23:18 → 06:30</span></div>
+      <svg viewBox="0 0 240 40" height="40">
+        <rect x="0" y="0" width="14" height="10" rx="2" fill="#ffb547"/><rect x="14" y="10" width="30" height="10" rx="2" fill="#8fa3ff"/><rect x="44" y="20" width="36" height="10" rx="2" fill="#5b6cff"/><rect x="80" y="10" width="22" height="10" rx="2" fill="#8fa3ff"/><rect x="102" y="30" width="16" height="10" rx="2" fill="#c38bff"/><rect x="118" y="20" width="30" height="10" rx="2" fill="#5b6cff"/><rect x="148" y="10" width="26" height="10" rx="2" fill="#8fa3ff"/><rect x="174" y="30" width="20" height="10" rx="2" fill="#c38bff"/><rect x="194" y="10" width="34" height="10" rx="2" fill="#8fa3ff"/><rect x="228" y="0" width="12" height="10" rx="2" fill="#ffb547"/>
+      </svg>
+      <div class="legend"><span><i style="background:var(--deep)"></i>Profond 1 h 58</span><span><i style="background:var(--light)"></i>Léger 3 h 51</span><span><i style="background:var(--rem)"></i>REM 1 h 02</span><span><i style="background:var(--awake)"></i>Éveil 21 min</span></div></div>
+    <div class="panel" style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:10px;color:var(--muted)">Entraînements</div><div style="font-weight:700;font-size:13px">🏃 Course · 32 min · 4.1 km</div></div><span style="font-size:10px;color:var(--muted)">07:02</span></div>
+  </div>
+  <div class="nav"><div><b>◉</b>Accueil</div><div class="on"><b>👣</b>Activité</div><div><b>📈</b>Historique</div><div><b>≡</b>Journal</div><div><b>⚙</b>Réglages</div></div>
+</div>
+<div class="label">3 · Activité : pas, distance, calories, sédentarité, sommeil, entraînements</div>
+</div>
+
+<!-- 4 Historique -->
+<div>
+<div class="phone">
+  <div class="sb"><span>14:32</span><span>● 5G 87%</span></div>
+  <div class="top"><h2>Historique</h2><div class="ic">⤓</div></div>
+  <div class="body">
+    <div class="chips"><span class="a">Cœur</span><span>SpO2</span><span>Temp.</span><span>Tension</span><span>HRV</span><span>Stress</span></div>
+    <div class="tabs"><span class="a">Jour</span><span>7 jours</span><span>30 jours</span></div>
+    <div class="panel"><div class="ttl"><b>Fréquence cardiaque</b><span>moy. 71 · min 54 · max 118</span></div>
+      <svg viewBox="0 0 240 110" height="110">
+        <g stroke="#2a3150" stroke-width="1"><line x1="0" y1="20" x2="240" y2="20"/><line x1="0" y1="55" x2="240" y2="55"/><line x1="0" y1="90" x2="240" y2="90"/></g>
+        <path d="M0,78 L15,80 L30,82 L45,79 L60,76 L75,60 L90,52 L105,58 L120,40 L135,30 L150,55 L165,62 L180,24 L195,48 L210,58 L225,60 L240,62 L240,110 L0,110Z" fill="rgba(255,93,115,.13)"/>
+        <path d="M0,78 L15,80 L30,82 L45,79 L60,76 L75,60 L90,52 L105,58 L120,40 L135,30 L150,55 L165,62 L180,24 L195,48 L210,58 L225,60 L240,62" fill="none" stroke="#ff5d73" stroke-width="2.2" stroke-linejoin="round"/>
+        <circle cx="180" cy="24" r="3.5" fill="#ff5d73"/>
+        <g fill="#8b93b0" font-size="8"><text x="0" y="104">0h</text><text x="56" y="104">6h</text><text x="114" y="104">12h</text><text x="172" y="104">18h</text><text x="226" y="104">24h</text></g>
+      </svg></div>
+    <div class="sec">Mesures du jour</div>
+    <div class="ev"><div class="r"><span style="font-size:12.5px;font-weight:650">♥ 72 bpm</span><span class="time">14:30 · MQTT</span></div></div>
+    <div class="ev"><div class="r"><span style="font-size:12.5px;font-weight:650">♥ 118 bpm</span><span class="time">17:45 · auto (bague)</span></div></div>
+    <div class="ev"><div class="r"><span style="font-size:12.5px;font-weight:650">♥ 64 bpm</span><span class="time">09:12 · manuel</span></div></div>
+  </div>
+  <div class="nav"><div><b>◉</b>Accueil</div><div><b>👣</b>Activité</div><div class="on"><b>📈</b>Historique</div><div><b>≡</b>Journal</div><div><b>⚙</b>Réglages</div></div>
+</div>
+<div class="label">4 · Historique : courbes par mesure, jour / 7 j / 30 j</div>
+</div>
+
+<!-- 5 Journal -->
+<div>
+<div class="phone">
+  <div class="sb"><span>14:32</span><span>● 5G 87%</span></div>
+  <div class="top"><h2>Journal MQTT</h2><div class="ic">🗑</div></div>
+  <div class="body">
+    <div class="chips"><span class="a">Tout</span><span>Commandes</span><span>Résultats</span><span>Erreurs</span></div>
+    <div class="pill" style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:var(--muted)">En attente d'envoi (hors ligne)</span><b style="font-size:13px">0</b></div>
+    <div class="ev"><div class="r"><span class="tag in">⬇ CMD</span><span class="time">14:31:48</span></div><div class="tp">eis/colmi/C4A15F22A4F1/cmd</div><code>{"cmd":"spo2","reqId":"a7"}</code></div>
+    <div class="ev"><div class="r"><span class="tag st">⬆ MESURE</span><span class="time">14:31:48</span></div><div class="tp">…/spo2</div><code>{"reqId":"a7","type":"spo2","status":"measuring"}</code></div>
+    <div class="ev"><div class="r"><span class="tag out">⬆ RÉSULTAT</span><span class="time">14:30:12</span></div><div class="tp">…/hr</div><code>{"reqId":"a6","type":"hr","value":72,"rri":833,"unit":"bpm","status":"ok"}</code></div>
+    <div class="ev"><div class="r"><span class="tag out">⬆ STATUT</span><span class="time">14:20:03</span></div><div class="tp">…/status (retenu)</div><code>{"online":true,"ring":"connected","battery":82,"charging":true}</code></div>
+  </div>
+  <div class="nav"><div><b>◉</b>Accueil</div><div><b>👣</b>Activité</div><div><b>📈</b>Historique</div><div class="on"><b>≡</b>Journal</div><div><b>⚙</b>Réglages</div></div>
+</div>
+<div class="label">5 · Journal : commandes reçues, résultats envoyés, file hors ligne</div>
+</div>
+
+<!-- 6 Réglages -->
+<div>
+<div class="phone">
+  <div class="sb"><span>14:32</span><span>● 5G 87%</span></div>
+  <div class="top"><h2>Réglages</h2><div class="ic">✓</div></div>
+  <div class="body">
+    <div class="sec">Broker MQTT</div>
+    <div class="form">
+      <div class="f"><div class="k">Hôte · Port</div><div class="x">51.83.40.138 : 1883</div></div>
+      <div class="f"><div class="k">Utilisateur · Mot de passe</div><div class="x">tvclient · ••••••••</div></div>
+      <div class="f"><div class="k">Préfixe · Nom de l'appareil</div><div class="x">eis/colmi/{mac}/ · TV-salon</div></div>
+    </div>
+    <div class="sec">Bague</div>
+    <div class="form">
+      <div class="f sw"><div><div class="k">Bague associée</div><div class="x">R06_A4F1</div></div><span style="color:var(--accent);font-size:11.5px;font-weight:650">Changer</span></div>
+      <div class="f"><div class="k">Firmware · Matériel</div><div class="x">2.1.8 · R06_V1.2</div></div>
+      <div class="f"><div class="k">Fonctions supportées</div><div class="fn"><span>Cœur</span><span>SpO2</span><span>Temp.</span><span>Tension</span><span>HRV</span><span>Stress</span><span>Sommeil</span><span class="no">Temp. ×3</span></div></div>
+    </div>
+    <div class="sec">Arrière-plan</div>
+    <div class="form">
+      <div class="f sw"><div class="x">Démarrer au boot</div><div class="tg"></div></div>
+      <div class="f sw"><div class="x">Ignorer l'optimisation batterie</div><div class="tg"></div></div>
+    </div>
+  </div>
+  <div class="nav"><div><b>◉</b>Accueil</div><div><b>👣</b>Activité</div><div><b>📈</b>Historique</div><div><b>≡</b>Journal</div><div class="on"><b>⚙</b>Réglages</div></div>
+</div>
+<div class="label">6 · Réglages : broker, infos bague, fonctions supportées</div>
+</div>
+
+<!-- 7 Scan -->
+<div>
+<div class="phone">
+  <div class="sb"><span>14:02</span><span>● 5G 90%</span></div>
+  <div class="top"><h2>Associer une bague</h2><div class="ic">✕</div></div>
+  <div class="body">
+    <div class="radar">◎<b>Recherche des bagues… 9 s</b></div>
+    <div class="sec">Bagues à proximité</div>
+    <div class="dev sel"><span style="font-size:18px">💍</span><div><div class="nm">R06_A4F1</div><div class="mc">C4:A1:5F:22:A4:F1</div></div><div class="rs"><i style="height:5px"></i><i style="height:9px"></i><i style="height:13px"></i><i style="height:16px"></i></div></div>
+    <div class="dev"><span style="font-size:18px">💍</span><div><div class="nm">R02_1B7C</div><div class="mc">E2:09:3A:61:1B:7C</div></div><div class="rs"><i style="height:5px"></i><i style="height:9px"></i><i style="height:13px;opacity:.3"></i><i style="height:16px;opacity:.3"></i></div></div>
+    <div class="dev"><span style="font-size:18px">💍</span><div><div class="nm">R10_77E0</div><div class="mc">F0:42:BB:03:77:E0</div></div><div class="rs"><i style="height:5px"></i><i style="height:9px;opacity:.3"></i><i style="height:13px;opacity:.3"></i><i style="height:16px;opacity:.3"></i></div></div>
+    <div style="flex:1"></div>
+    <div class="big">Connecter R06_A4F1</div>
+  </div>
+  <div style="height:14px"></div>
+</div>
+<div class="label">7 · Scan : bagues triées par signal</div>
+</div>
+
+<!-- 8 Notification -->
+<div>
+<div class="phone" style="background:linear-gradient(160deg,#28345c,#0f1320)">
+  <div class="sb"><span>14:32</span><span>● 5G 87%</span></div>
+  <div style="text-align:center;font-size:54px;font-weight:300;margin:30px 0 4px">14:32</div>
+  <div style="text-align:center;font-size:12px;color:#aab1cc;margin-bottom:24px">jeudi 24 septembre</div>
+  <div class="body">
+    <div style="background:rgba(30,36,56,.92);border-radius:18px;padding:12px">
+      <div style="display:flex;gap:8px;align-items:center;font-size:10.5px;color:var(--muted)"><span style="background:var(--accent);color:#fff;border-radius:6px;padding:1px 5px;font-weight:800">◎</span>QRing MQTT · maintenant</div>
+      <div style="font-weight:700;font-size:13.5px;margin-top:6px">Service actif</div>
+      <div style="font-size:12px;color:#c7cdea;margin-top:3px">Bague connectée · 82 % · Broker en ligne</div>
+      <div style="font-size:12px;color:var(--spo2);margin-top:3px"><span class="spin" style="width:12px;height:12px"></span>Mesure SpO2 en cours (MQTT)</div>
+      <div style="display:flex;gap:16px;margin-top:10px;font-size:11.5px;color:var(--accent);font-weight:700"><span>OUVRIR</span><span>ANNULER LA MESURE</span></div>
+    </div>
+  </div>
+</div>
+<div class="label">8 · Notification permanente (arrière-plan)</div>
+</div>
+
+</div>
+
+<div class="part">ANDROID TV · télécommande (◀ ▲ ▼ ▶ + OK)</div>
+<div class="tvwrap">
+  <div class="tv">
+    <div class="tvside">
+      <div class="tvlogo">◎ QRing</div>
+      <div class="tvnav on">◉ Accueil</div>
+      <div class="tvnav">👣 Activité</div>
+      <div class="tvnav">📈 Historique</div>
+      <div class="tvnav">≡ Journal</div>
+      <div class="tvnav">⚙ Réglages</div>
+      <div style="flex:1"></div>
+      <div class="pill" style="margin-bottom:6px"><div class="t">Bague</div><div class="v"><span class="dot"></span>R06_A4F1 · 82%</div></div>
+      <div class="pill"><div class="t">Broker MQTT</div><div class="v"><span class="dot"></span>En ligne</div></div>
+    </div>
+    <div class="tvmain">
+      <div class="tvtitle">Mesures <span>TV-salon · 14:32</span></div>
+      <div class="tvgrid">
+        <div class="tc focus"><div class="hd"><i style="background:rgba(255,93,115,.18);color:var(--hr)">♥</i>Cœur</div><div class="val">72<small>bpm</small></div><div class="ago">OK = mesurer</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(79,195,247,.18);color:var(--spo2)">O₂</i>SpO2</div><div class="val">97<small>%</small></div><div class="ago">8 min</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(255,160,77,.18);color:var(--temp)">🌡</i>Temp.</div><div class="val">36.6<small>°C</small></div><div class="ago">1 h</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(177,140,255,.18);color:var(--bp)">◎</i>Tension</div><div class="val" style="font-size:19px">120/80</div><div class="ago">3 h</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(62,207,142,.18);color:var(--hrv)">∿</i>HRV</div><div class="val">48<small>ms</small></div><div class="ago">hier</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(255,210,63,.18);color:var(--stress)">⚡</i>Stress</div><div class="val">31</div><div class="ago">hier</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(62,207,142,.18);color:var(--ok)">👣</i>Pas</div><div class="val" style="font-size:20px">6 842</div><div class="ago">4.9 km · 312 kcal</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(91,108,255,.2);color:var(--light)">☾</i>Sommeil</div><div class="val" style="font-size:20px">7 h 12</div><div class="ago">profond 1 h 58</div></div>
+        <div class="tc"><div class="hd"><i style="background:rgba(62,207,142,.18);color:var(--ok)">▮</i>Batterie</div><div class="val">82<small>%</small></div><div class="ago">⚡ en charge</div></div>
+        <div class="tc all">▶ Tout mesurer</div>
+      </div>
+    </div>
+  </div>
+  <div class="label" style="max-width:none">A · TV Accueil : la carte sélectionnée est agrandie et entourée de blanc</div>
+
+  <div class="tv" style="margin-top:28px">
+    <div class="full">
+      <div style="font-size:15px;color:var(--muted)">Mesure demandée par le serveur (MQTT)</div>
+      <div class="bigring"><span><div><div class="v">SpO2</div><div class="u">17 s / 30 s</div></div></span></div>
+      <div style="font-size:22px;font-weight:700">Gardez la bague au doigt et restez immobile</div>
+      <div style="display:flex;gap:14px"><div class="tvbtn focus">Annuler</div><div class="tvbtn">Masquer</div></div>
+    </div>
+  </div>
+  <div class="label" style="max-width:none">B · TV mesure en plein écran : lisible de loin, OK = annuler</div>
+
+  <div class="tv" style="margin-top:28px">
+    <div class="full" style="background:radial-gradient(circle at 50% 42%,rgba(255,107,107,.14),transparent 60%),var(--phone)">
+      <div style="font-size:64px">⚠</div>
+      <div style="font-size:26px;font-weight:800;color:var(--err)">Bague déconnectée</div>
+      <div style="font-size:15px;color:var(--muted)">R06_A4F1 · reconnexion automatique dans 10 s</div>
+      <div style="display:flex;gap:14px;margin-top:6px"><div class="tvbtn focus">Reconnecter</div><div class="tvbtn">Changer de bague</div></div>
+    </div>
+  </div>
+  <div class="label" style="max-width:none">C · TV bague déconnectée</div>
+</div>
+
+<p class="note">Les cartes des fonctions non supportées par ta bague sont masquées automatiquement. Les écrans Activité, Historique, Journal et Réglages existent aussi en version TV, avec la même disposition latérale.</p>
+</body>
+</html>
