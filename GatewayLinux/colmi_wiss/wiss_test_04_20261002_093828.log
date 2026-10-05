@@ -1,0 +1,13 @@
+09:38:28.138 | ======================================================================
+09:38:28.139 | WISS / COLMI SIMPLE - TEST 04 FAST - ONE CONNECTION
+09:38:28.139 | TARGET : COLMI R10_6401 | 30:32:42:32:64:01
+09:38:28.139 | LOG    : /root/colmi_wiss/wiss_test_04_20261002_093828.log
+09:38:28.139 | ONE BLE CONNECTION : INFO/BATTERY -> HR -> SpO2
+09:38:28.139 | ======================================================================
+09:38:28.139 | 
+=== 1. CONNECT ===
+09:38:28.140 | GATEWAY | CONNECT START | 30:32:42:32:64:01
+09:38:43.259 | GATEWAY | NOT AVAILABLE | TimeoutError: 
+09:38:43.380 | MQTT | OK | /test_wiss2/R10_6401/result | {"time": "2026-10-02T09:38:43+01:00", "device": "COLMI R10_6401", "mac": "30:32:42:32:64:01", "status": "NOT_AVAILABLE", "battery": null, "charging": null, "hr": [], "hr_error": null, "spo2": [], "spo2_error": null, "program_s": 15.122}
+09:38:44.383 | BT RESTART | fin cycle V4
+09:38:44.683 | BT RESTART | rc=0 | 0.300s

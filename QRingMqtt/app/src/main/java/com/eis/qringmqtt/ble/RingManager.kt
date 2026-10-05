@@ -96,6 +96,7 @@ object RingManager {
             try { BleOperateManager.getInstance().unBindDevice() } catch (_: Exception) {}
         }
         prefs.ringMac = mac
+        AppState.ringLabel.value = prefs.ringLabel // vidé si c'est une autre bague
         prefs.ringName = name
         prefs.firmware = null
         prefs.hardware = null
@@ -169,6 +170,7 @@ object RingManager {
         } catch (_: Exception) {}
         val prefs = AppState.prefs
         prefs.ringMac = null
+        AppState.ringLabel.value = ""
         prefs.ringName = null
         prefs.firmware = null
         prefs.hardware = null
@@ -337,7 +339,9 @@ object RingManager {
         }
         if (rsp != null) {
             batteryPending = false
-            AppState.info.update { it.copy(battery = rsp.batteryValue, charging = rsp.isCharging) }
+            AppState.info.update {
+                it.copy(battery = rsp.batteryValue, charging = rsp.isCharging, batteryAtMs = System.currentTimeMillis())
+            }
             events.tryEmit("battery")
         }
         return rsp

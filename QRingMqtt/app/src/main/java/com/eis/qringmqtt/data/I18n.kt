@@ -20,6 +20,9 @@ object I18n {
     /** Lu par l'interface : un changement redessine tout l'écran. */
     var lang by mutableStateOf(Lang.FR)
 
+    /** Appareil TV (true) ou téléphone : « via TV » / « via téléphone ». Défini au démarrage (App). */
+    var isTv: Boolean = true
+
     val locale: Locale get() = Locale(lang.code)
 }
 
@@ -38,13 +41,15 @@ private val S: Map<String, Array<String>> = mapOf(
     "tab.history" to arrayOf("Historique", "History", "السجل"),
     "tab.journal" to arrayOf("Journal", "Log", "سجل الرسائل"),
     "tab.settings" to arrayOf("Réglages", "Settings", "الإعدادات"),
-    "tab.scan" to arrayOf("Scan", "Scan", "البحث"),
+    "tab.scan" to arrayOf("Scanner", "Scan", "البحث"),
+    "tab.status" to arrayOf("État bague", "Ring status", "حالة الخاتم"),
+    "nav.to_check" to arrayOf("à vérifier", "to check", "للتحقق"),
 
     // ---------------- états
     "ring.no_ring" to arrayOf("Aucune bague associée", "No ring paired", "لا يوجد خاتم مرتبط"),
     "ring.connecting" to arrayOf("Connexion…", "Connecting…", "جارٍ الاتصال…"),
     "ring.connected" to arrayOf("Connectée", "Connected", "متصل"),
-    "ring.disconnected" to arrayOf("Déconnectée", "Disconnected", "غير متصل"),
+    "ring.disconnected" to arrayOf("Hors portée", "Out of range", "خارج النطاق"),
     "ring.bluetooth_off" to arrayOf("Bluetooth désactivé", "Bluetooth off", "البلوتوث مغلق"),
     "broker.offline" to arrayOf("Hors ligne", "Offline", "غير متصل"),
     "broker.connecting" to arrayOf("Connexion…", "Connecting…", "جارٍ الاتصال…"),
@@ -75,7 +80,7 @@ private val S: Map<String, Array<String>> = mapOf(
     "m.lang" to arrayOf("Langue", "Language", "اللغة"),
 
     // ---------------- erreurs
-    "err.ring_disconnected" to arrayOf("Bague déconnectée", "Ring disconnected", "الخاتم غير متصل"),
+    "err.ring_disconnected" to arrayOf("Bague hors portée", "Ring out of range", "الخاتم خارج النطاق"),
     "err.ring_removed" to arrayOf("Bague retirée", "Ring removed", "الخاتم غير مرتدى"),
     "err.timeout" to arrayOf("Pas de résultat", "No result", "لا توجد نتيجة"),
     "err.measure_failed" to arrayOf("Mesure échouée", "Measurement failed", "فشل القياس"),
@@ -96,7 +101,7 @@ private val S: Map<String, Array<String>> = mapOf(
         "Please wear the ring, then start the measurement again",
         "يرجى ارتداء الخاتم ثم إعادة القياس"
     ),
-    "home.disc_title" to arrayOf("Bague déconnectée", "Ring disconnected", "الخاتم غير متصل"),
+    "home.disc_title" to arrayOf("Bague hors portée", "Ring out of range", "الخاتم خارج النطاق"),
     "home.bt_off_title" to arrayOf("Bluetooth désactivé", "Bluetooth off", "البلوتوث مغلق"),
     "home.bt_off_text" to arrayOf("Activez le Bluetooth de l'appareil", "Turn on the device's Bluetooth", "فعّل البلوتوث في الجهاز"),
     "home.reconnect_in" to arrayOf("Reconnexion automatique dans %d s", "Reconnecting automatically in %d s", "إعادة الاتصال تلقائيًا خلال %d ث"),
@@ -129,8 +134,12 @@ private val S: Map<String, Array<String>> = mapOf(
     "t.min" to arrayOf("il y a %d min", "%d min ago", "منذ %d د"),
     "t.h" to arrayOf("il y a %d h", "%d h ago", "منذ %d س"),
     "t.yesterday" to arrayOf("hier", "yesterday", "أمس"),
-    "src.mqtt" to arrayOf("MQTT", "MQTT", "MQTT"),
-    "src.manual" to arrayOf("manuel", "manual", "يدوي"),
+    "src.mqtt" to arrayOf("via Serveur", "on Server", "عن بُعد"),
+    "src.manual" to arrayOf("via G-RHM", "on G-RHM", "عبر التلفاز"),
+    "src.manual_phone" to arrayOf("via téléphone", "on phone", "عبر الهاتف"),
+    "src.phone_p" to arrayOf("prise", "taken", "مأخوذ"),
+    "src.phone_r" to arrayOf("actualisée", "refreshed", "محدَّث"),
+    "src.by" to arrayOf("par %s", "by %s", "بواسطة %s"),
     "src.auto" to arrayOf("auto", "auto", "تلقائي"),
 
     // ---------------- activité
@@ -255,14 +264,73 @@ private val S: Map<String, Array<String>> = mapOf(
     "ob.s2" to arrayOf("Fonctionner en arrière-plan", "Run in the background", "العمل في الخلفية"),
     "ob.s2t" to arrayOf("Empêche Android d'arrêter le service.", "Prevents Android from stopping the service.", "يمنع أندرويد من إيقاف الخدمة."),
     "ob.s3" to arrayOf("Démarrage automatique", "Auto-start", "التشغيل التلقائي"),
-    "ob.s3t" to arrayOf("Réglage du fabricant : activez QRing MQTT dans la liste.", "Manufacturer setting: enable QRing MQTT in the list.", "إعداد الشركة المصنعة: فعّل QRing MQTT في القائمة."),
+    "ob.s3t" to arrayOf("Réglage du fabricant : activez Gateway RHM dans la liste.", "Manufacturer setting: enable Gateway RHM in the list.", "إعداد الشركة المصنعة: فعّل Gateway RHM في القائمة."),
     "ob.continue" to arrayOf("Continuer", "Continue", "متابعة"),
     "ob.required" to arrayOf("L'étape 1 est obligatoire.", "Step 1 is required.", "الخطوة 1 إلزامية."),
     "ob.allow" to arrayOf("Autoriser", "Allow", "سماح"),
 
     // ---------------- notification
-    "n.title" to arrayOf("QRing MQTT actif", "QRing MQTT active", "QRing MQTT نشط"),
-    "n.channel" to arrayOf("Service QRing", "QRing service", "خدمة QRing"),
+    "n.title" to arrayOf("Gateway RHM actif", "Gateway RHM active", "Gateway RHM نشط"),
+    "n.channel" to arrayOf("Service Gateway RHM", "Gateway RHM service", "خدمة Gateway RHM"),
+    // ---- Bouton « État de la bague » (accueil)
+    "st.button" to arrayOf("État de la bague", "Ring status", "حالة الخاتم"),
+    "st.checking" to arrayOf("Vérification de la bague…", "Checking the ring…", "جارٍ فحص الخاتم…"),
+    "st.request" to arrayOf("Demande envoyée à la bague…", "Request sent to the ring…", "تم إرسال الطلب إلى الخاتم…"),
+    "st.worn" to arrayOf("Bague portée — vérifiée à %s", "Ring worn — checked at %s", "الخاتم ملبوس — تم التحقق في %s"),
+    "st.recent" to arrayOf("Vérification récente réutilisée", "Recent check reused", "تمت إعادة استخدام تحقق حديث"),
+    "st.measuring" to arrayOf("%s en cours · %d s / %d s", "%s measuring · %d s / %d s", "%s قيد القياس · %d ث / %d ث"),
+    "st.follow" to arrayOf("Mesure %s déjà en cours : elle sert de vérification", "%s measurement already running: used as check", "قياس %s جارٍ: يُستخدم للتحقق"),
+    "st.removed" to arrayOf("Bague retirée — veuillez porter la bague", "Ring removed — please wear the ring", "الخاتم منزوع — يرجى ارتداء الخاتم"),
+    "st.out" to arrayOf("Bague hors portée", "Ring out of range", "الخاتم خارج النطاق"),
+    "st.bt_off" to arrayOf("Bluetooth désactivé", "Bluetooth off", "البلوتوث مغلق"),
+    "st.no_ring" to arrayOf("Aucune bague associée", "No ring paired", "لا يوجد خاتم مقترن"),
+    "st.unconfirmed" to arrayOf("Pas de signal — port non confirmé", "No signal — wear not confirmed", "لا توجد إشارة — لم يتم تأكيد الارتداء"),
+    "st.failed" to arrayOf("Vérification impossible : %s", "Check failed: %s", "تعذر التحقق: %s"),
+    "home.battery_at" to arrayOf("dernière date de vérification %s", "read at %s", "قُرئت في %s"),
+    // ---- État permanent de la bague (bandeau de l'accueil, carte du menu)
+    "rs.no_ring" to arrayOf("Aucune bague", "No ring", "لا يوجد خاتم"),
+    "rs.bt_off" to arrayOf("Bluetooth désactivé", "Bluetooth off", "البلوتوث مغلق"),
+    "rs.connecting" to arrayOf("Connexion…", "Connecting…", "جارٍ الاتصال…"),
+    "rs.out" to arrayOf("Hors portée", "Out of range", "خارج النطاق"),
+    "rs.out_title" to arrayOf("Bague hors portée", "Ring out of range", "الخاتم خارج النطاق"),
+    "rs.out_detail" to arrayOf("depuis %s · reconnexion automatique", "since %s · reconnecting automatically", "منذ %s · إعادة اتصال تلقائية"),
+    "rs.checking" to arrayOf("Vérification…", "Checking…", "جارٍ التحقق…"),
+    "rs.worn" to arrayOf("Portée", "Worn", "مرتدى"),
+    "rs.worn_title" to arrayOf("Bague portée", "Ring worn", "الخاتم مرتدى"),
+    "rs.checked_at" to arrayOf("Date de vérification à %s", "checked at %s", "تم التحقق في %s"),
+    "rs.measured_at" to arrayOf("Mesure à %s", "Measured at %s", "قياس في %s"),
+    "rs.removed_at" to arrayOf("détectée à %s", "detected at %s", "اكتُشف في %s"),
+    "rs.since" to arrayOf("depuis %s", "since %s", "منذ %s"),
+    "rs.removed" to arrayOf("Retirée", "Removed", "منزوع"),
+    "rs.removed_title" to arrayOf("Bague retirée", "Ring removed", "الخاتم منزوع"),
+    "rs.removed_detail" to arrayOf("détectée à %s · veuillez porter la bague", "detected at %s · please wear the ring", "اكتُشف في %s · يرجى ارتداء الخاتم"),
+    "rs.unchecked" to arrayOf("Connectée", "Connected", "متصل"),
+    "rs.unchecked_title" to arrayOf("Bague connectée", "Ring connected", "الخاتم متصل"),
+    "rs.unchecked_detail" to arrayOf("appuyez sur Actualiser pour vérifier", "press Refresh to check", "اضغط تحديث للتحقق"),
+    // ---- Bouton Actualiser
+    "st.refresh" to arrayOf("Actualiser l'état de la bague", "Refresh ring status", "تحديث حالة الخاتم"),
+    "st.refresh_in" to arrayOf("Actualiser dans %s", "Refresh in %s", "تحديث بعد %s"),
+    "st.checking_btn" to arrayOf("Vérification… %d s / %d s", "Checking… %d s / %d s", "جارٍ التحقق… %d ث / %d ث"),
+    // ---- Popups
+    "pop.back_title" to arrayOf("Content de vous revoir !", "Welcome back!", "مرحبًا بعودتك!"),
+    "pop.back_text" to arrayOf("Votre bague est de nouveau connectée.", "Your ring is connected again.", "خاتمك متصل مجددًا."),
+    "pop.back_q" to arrayOf("On vérifie qu'elle est bien à votre doigt ?", "Shall we check it's on your finger?", "هل نتحقق من أنه في إصبعك؟"),
+    "pop.back_yes" to arrayOf("Oui, vérifier", "Yes, check", "نعم، تحقق"),
+    "pop.out_title" to arrayOf("Votre bague s'est éloignée", "Your ring is out of reach", "ابتعد خاتمك"),
+    "pop.out_text_tv" to arrayOf("Rapprochez-vous de la Gateway RHM, elle se reconnectera toute seule.", "Move closer to the TV — it will reconnect automatically.", "اقترب من التلفاز، وسيعاد الاتصال تلقائيًا."),
+    "pop.out_text_phone" to arrayOf("Rapprochez-vous du téléphone, elle se reconnectera toute seule.", "Move closer to the phone — it will reconnect automatically.", "اقترب من الهاتف، وسيعاد الاتصال تلقائيًا."),
+    "pop.ok" to arrayOf("OK", "OK", "حسنًا"),
+    "pop.recent_title" to arrayOf("Vous venez de faire une mesure", "A measurement was just taken", "تم إجراء قياس للتو"),
+    "pop.recent_text" to arrayOf("L'état de la bague est déjà à jour.", "The ring status is already up to date.", "حالة الخاتم محدّثة بالفعل."),
+    "pop.busy_title" to arrayOf("Mesure en cours", "Measurement in progress", "القياس جارٍ"),
+    "pop.busy_text" to arrayOf("Veuillez patienter : la vérification de la bague sera lancée à la fin de la mesure en cours (%s).", "Please wait: the ring check will start when the current measurement ends (%s).", "يرجى الانتظار: سيبدأ فحص الخاتم عند انتهاء القياس الجاري (%s)."),
+    "st.waiting" to arrayOf("En attente de la fin de la mesure…", "Waiting for the measurement to end…", "في انتظار انتهاء القياس…"),
+    "lbl.broker_line" to arrayOf("Broker MQTT : %s", "MQTT broker: %s", "خادم MQTT: %s"),
+    "pop.removed_title" to arrayOf("Oups, la bague n'est pas portée", "Oops, the ring isn't being worn", "عذرًا، الخاتم غير مرتدى"),
+    "pop.removed_text" to arrayOf("Mettez-la au doigt pour que la mesure fonctionne.", "Put it on your finger so the measurement can work.", "ضعه في إصبعك ليعمل القياس."),
+    "pop.removed_q" to arrayOf("On réessaie ?", "Try again?", "هل نعيد المحاولة؟"),
+    "pop.retry" to arrayOf("Réessayer", "Try again", "إعادة المحاولة"),
+    "btn.later" to arrayOf("Plus tard", "Later", "لاحقًا"),
     "n.starting" to arrayOf("Démarrage…", "Starting…", "جارٍ التشغيل…"),
     "n.ring_ok" to arrayOf("Bague connectée", "Ring connected", "الخاتم متصل"),
     "n.broker" to arrayOf("Broker %s", "Broker %s", "الخادم %s"),

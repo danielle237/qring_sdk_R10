@@ -184,7 +184,7 @@ fun SettingsScreen(isTv: Boolean, onScan: () -> Unit) {
                 }
             }
         }
-        Text("QRing MQTT v${BuildConfig.VERSION_NAME}", color = C.muted, fontSize = 11.sp, modifier = Modifier.padding(8.dp))
+        Text("Gateway RHM v${BuildConfig.VERSION_NAME}", color = C.muted, fontSize = 11.sp, modifier = Modifier.padding(8.dp))
     }
 
     if (confirmUnbind) {

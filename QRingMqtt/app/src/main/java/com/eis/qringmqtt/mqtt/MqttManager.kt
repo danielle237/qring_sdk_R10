@@ -166,7 +166,11 @@ class MqttManager(
         AppState.log(LogEntry.Kind.INFO, "broker", "OK ${AppState.prefs.host} · $gw")
         try {
             client?.subscribe("$gw/cmd", 1)
-            if (base != gw) client?.subscribe("$base/cmd", 1)
+            if (base != gw) {
+                client?.subscribe("$base/cmd", 1)
+                // Nom donné dans l'admin (message retenu) : arrive tout de suite après l'abonnement
+                client?.subscribe("$base/profile", 1)
+            }
         } catch (e: Exception) {
             Log.e(tag, "subscribe", e)
         }
@@ -200,6 +204,10 @@ class MqttManager(
             val payload = message?.payload?.let { String(it, Charsets.UTF_8) } ?: return
             scope.launch {
                 AppState.log(LogEntry.Kind.IN, topic ?: "", payload)
+                if (topic != null && topic.endsWith("/profile")) {
+                    onProfile(payload)
+                    return@launch
+                }
                 val gw = connectedGateway
                 onCommand(payload, gw != null && topic != null && topic.startsWith("$gw/"))
             }
@@ -255,11 +263,19 @@ class MqttManager(
         if (gw != base) publishRaw("$gw/status", payload, retained = true, queueIfOffline = false)
     }
 
+    /** Profil de la bague envoyé par l'admin : {"name":"Mme Martin"} (vide = pas de nom). */
+    private fun onProfile(payload: String) {
+        val name = try { JSONObject(payload).optString("name", "").trim() } catch (_: Exception) { "" }
+        AppState.prefs.ringLabel = name
+        AppState.ringLabel.value = name
+    }
+
     /** Publie un message « hors ligne » sur l'ancien topic d'une bague (dissociée ou remplacée). */
     fun publishRingOffline(oldMac: String, reason: String) {
         val topic = "${AppState.prefs.topicPrefix}/${macForTopic(oldMac)}/status"
         val o = statusPayload(false).put("ring", "unbound").put("reason", reason)
-            .put("ringMac", oldMac)
+            .put("ringMac", oldMac).put("unboundAt", System.currentTimeMillis() / 1000)
+            .put("boundAt", JSONObject.NULL).put("removedAt", JSONObject.NULL)
         publishRaw(topic, o.toString(), retained = true, queueIfOffline = true)
     }
 

@@ -95,58 +95,64 @@ object Syncer {
 
     // ------------------------------------------------------------------ sommeil
 
-    suspend fun sleep(day: Int): JSONObject? {
-        var display: SleepDisplay? = null
-        var proto: SleepNewProtoResp? = null
-        collect(12000, 2500) { add, _ ->
-            LargeDataHandler.getInstance().syncSleepList(day,
-                ILargeDataSleepResponse { d -> mainHandler.post { if (d != null) { display = d; add() } } },
-                ILargeDataLaunchSleepResponse { p -> mainHandler.post { if (p != null) { proto = p; add() } } }
+    /**
+     * Sommeil : toutes les nuits encore en mémoire dans la bague (≈ 7 jours, parfois plus).
+     * Le SDK renvoie une [SleepDisplay] par nuit (même calcul que l'app QRing) :
+     * total = profond + léger + REM + éveillé, durées en secondes, heures en secondes Unix.
+     * La 2ᵉ réponse ([SleepNewProtoResp]) est la sieste (lunch) : types 2 léger · 3 profond · 4 REM · 5 éveillé.
+     * [day] = 0 : on demande quand même tout l'historique (le SDK : offset ≠ 0 → toutes les nuits).
+     */
+    suspend fun sleep(@Suppress("UNUSED_PARAMETER") day: Int): JSONObject? {
+        val displays = ArrayList<SleepDisplay>()
+        val naps = ArrayList<SleepNewProtoResp>()
+        collect(15000, 3000) { add, _ ->
+            LargeDataHandler.getInstance().syncSleepList(255,
+                ILargeDataSleepResponse { d -> mainHandler.post { if (d != null) { displays.add(d); add() } } },
+                ILargeDataLaunchSleepResponse { p -> mainHandler.post { if (p != null) { naps.add(p); add() } } }
             )
         }
-        val d = display
-        val p = proto
-        if (d == null && p == null) return null
-
-        val o = JSONObject().put("day", day)
-        if (d != null) {
-            o.put("start", d.sleepTime)
-            o.put("end", d.wakeTime)
-            o.put("totalSeconds", d.totalSleepDuration)
-            o.put("deepSeconds", d.deepSleepDuration)
-            o.put("lightSeconds", d.shallowSleepDuration)
-            o.put("remSeconds", d.rapidDuration)
-            o.put("awakeSeconds", d.awakeDuration)
-            o.put("wakeCount", d.wakingCount)
-            val phases = JSONArray()
-            d.list?.forEach { b ->
-                phases.put(JSONObject().put("start", b.sleepStart).put("end", b.sleepEnd).put("type", phaseName(b.type)))
-            }
-            o.put("phases", phases)
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT)
+        // Une nuit par date (date du réveil) ; si doublon on garde la plus longue
+        val byDate = LinkedHashMap<String, JSONObject>()
+        displays.filter { it.wakeTime > 0 && it.totalSleepDuration > 0 }.forEach { d ->
+            val date = fmt.format(java.util.Date(d.wakeTime * 1000L))
+            val night = JSONObject()
+                .put("date", date)
+                .put("start", d.sleepTime)
+                .put("end", d.wakeTime)
+                .put("totalSeconds", d.totalSleepDuration)
+                .put("deepSeconds", d.deepSleepDuration)
+                .put("lightSeconds", d.shallowSleepDuration)
+                .put("remSeconds", d.rapidDuration)
+                .put("awakeSeconds", d.awakeDuration)
+                .put("phases", JSONArray().apply {
+                    d.list?.forEach { b ->
+                        put(JSONObject().put("start", b.sleepStart).put("end", b.sleepEnd).put("type", phaseName(b.type)))
+                    }
+                })
+            val old = byDate[date]
+            if (old == null || old.optInt("totalSeconds") < d.totalSleepDuration) byDate[date] = night
         }
-        if (p != null) {
-            // Nouveau protocole : liste de (durée en minutes, type)
-            o.put("protoStart", p.st)
-            o.put("protoEnd", p.et)
-            val seq = JSONArray()
-            var deep = 0; var light = 0; var awake = 0; var rem = 0
-            p.list?.forEach { b ->
-                seq.put(JSONObject().put("minutes", b.d).put("type", phaseName(b.t)))
-                when (b.t) { 1 -> deep += b.d; 2 -> light += b.d; 3 -> awake += b.d; 4 -> rem += b.d }
-            }
-            o.put("sequence", seq)
-            if (d == null) {
-                o.put("totalSeconds", (deep + light + rem) * 60)
-                o.put("deepSeconds", deep * 60)
-                o.put("lightSeconds", light * 60)
-                o.put("remSeconds", rem * 60)
-                o.put("awakeSeconds", awake * 60)
-            }
-            if (p.isLunchBreak) o.put("nap", JSONObject().put("start", p.lunchSt).put("end", p.lunchEt))
+        if (byDate.isEmpty() && naps.isEmpty()) return null
+
+        val nights = byDate.values.sortedByDescending { it.optString("date") }
+        val o = JSONObject().put("day", 0).put("nights", JSONArray(nights))
+        // Dernière nuit en tête (carte « Sommeil » : durée totale + profond)
+        nights.firstOrNull()?.let { last ->
+            listOf("date", "start", "end", "totalSeconds", "deepSeconds", "lightSeconds", "remSeconds", "awakeSeconds")
+                .forEach { k -> o.put(k, last.get(k)) }
+        }
+        // Sieste (si la bague en a détecté une)
+        naps.lastOrNull { it.isLunchBreak && it.lunchEt > it.lunchSt }?.let { p ->
+            var deep = 0; var light = 0; var rem = 0; var awake = 0
+            p.list?.forEach { b -> when (b.t) { 2 -> light += b.d; 3 -> deep += b.d; 4 -> rem += b.d; 5 -> awake += b.d } }
+            o.put("nap", JSONObject().put("start", p.lunchSt).put("end", p.lunchEt)
+                .put("totalSeconds", (deep + light + rem + awake) * 60))
         }
         return o
     }
 
+    /** Types de [SleepDisplay.SleepDataBean] (SDK) : 1 profond · 2 léger · 3 éveillé · 4 REM · 5 non portée. */
     private fun phaseName(t: Int) = when (t) {
         1 -> "deep"; 2 -> "light"; 3 -> "awake"; 4 -> "rem"; 5 -> "not_worn"; else -> "unknown"
     }

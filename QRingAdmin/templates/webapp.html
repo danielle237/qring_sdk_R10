@@ -44,10 +44,19 @@ button{font:inherit;border:0;cursor:pointer}
 .mbtn{padding:14px 10px;border-radius:14px;background:var(--panel2);color:var(--text);font-weight:700;font-size:14px;border:1px solid var(--line);transition:.15s}
 .mbtn:active{transform:scale(.97)}
 .mbtn:disabled{opacity:.45;cursor:default}
+.statusbtn{width:100%;margin-top:14px;padding:15px;border-radius:14px;border:0;font-weight:800;font-size:15.5px;color:#fff;
+  background:linear-gradient(135deg,var(--accent),#7a5bfa);box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 40%,transparent);
+  display:flex;align-items:center;justify-content:center;gap:10px;transition:.15s}
+.statusbtn small{font-weight:600;opacity:.85;font-size:12.5px}
+.statusbtn:active{transform:scale(.98)}
+.statusbtn:disabled{opacity:.55;box-shadow:none}
+.statusbtn .spin{display:none;width:16px;height:16px;border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp 1s linear infinite}
+.statusbtn.busy .spin{display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
 .status{border-left:4px solid var(--c,var(--accent));display:none;position:relative}
 .status.on{display:block}
 .status .prev{color:var(--muted);font-size:12.5px;margin-top:8px}
-.status .x{position:absolute;top:10px;right:10px;background:var(--panel2);color:var(--muted);border-radius:10px;padding:4px 9px;font-size:12px;font-weight:600}
+.status .x{display:block;margin:12px 0 0 auto;background:var(--panel2);color:var(--muted);border-radius:10px;padding:6px 12px;font-size:12px;font-weight:600}
 .status b{display:block;font-size:15px}
 .status .d{color:var(--muted);font-size:12.5px;margin-top:3px}
 .bar{height:6px;border-radius:6px;background:var(--line);margin-top:10px;overflow:hidden}
@@ -80,11 +89,12 @@ svg{width:100%;height:150px;display:block}
         <div class="sub" id="sub"></div>
         <div id="presence"></div>
         <div class="meta"><span>📺 <b id="tv">—</b></span><span>🔋 <b id="batt">—</b></span><span>🕒 <b id="status">—</b></span></div>
+        <button class="statusbtn" id="statusBtn"><span class="spin"></span>🔄 État de la bague <small>· Ring status</small></button>
       </div>
 
-      <div class="card status" id="mstatus"><button class="x hidden" id="mclose">✕ Fermer · Close</button>
+      <div class="card status" id="mstatus">
         <b id="mtitle"></b><div class="d" id="mdetail"></div><div class="bar" id="mbarw"><i id="mbar"></i></div>
-        <div class="prev" id="mprev"></div></div>
+        <div class="prev" id="mprev"></div><button class="x hidden" id="mclose">✕ Fermer · Close</button></div>
 
       <div class="card">
         <h2>📊 Dernières mesures <span>· Latest readings</span></h2>
@@ -130,6 +140,12 @@ const M = {
   hrv:  { icon:'💓', fr:'HRV', en:'HRV', unit:'ms', c:'var(--hrv)', btn:'💓 HRV' },
   temp: { icon:'🌡', fr:'Température', en:'Temperature', unit:'°C', c:'var(--temp)', btn:'🌡 Temp.' },
 };
+M.bp = { icon:'🩺', fr:'Tension', en:'Blood pressure', unit:'mmHg', c:'var(--accent)', btn:'🩺 BP' };
+M.stress = { icon:'⚡', fr:'Stress', en:'Stress', unit:'', c:'var(--accent)', btn:'⚡ Stress' };
+M.all = { icon:'⚡', fr:'Mesure complète', en:'Full check', unit:'', c:'var(--accent)', btn:'⚡ Tout' };
+// Délais du check : réglage TELEGRAM_WEAR_CHECK_SECONDS / TELEGRAM_WEAR_REUSE_SECONDS du .env
+const wearSec = () => (S.snap && S.snap.wear && S.snap.wear.check) || 15;
+const wearReuse = () => (S.snap && S.snap.wear && S.snap.wear.reuse != null) ? S.snap.wear.reuse : 120;
 const ERR = {
   ring_removed:['🖐 Bague retirée — veuillez porter la bague','Ring removed — please wear the ring','var(--warn)'],
   ring_disconnected:['🟡 Hors portée','Out of range','var(--warn)'],
@@ -183,7 +199,11 @@ function render(){
   const s = S.snap, r = s.ring;
   $('#name').textContent = s.info.name;
   $('#sub').textContent = s.info.mac + (s.info.model ? ' · ' + s.info.model : '');
-  const [c, f, e] = presence(r);
+  if (S.meas && !S.meas.final) outcome();
+  let [c, f, e] = presence(r);
+  const mw = S.meas;
+  if (mw && mw.mode === 'wear' && !mw.final && !mw.wornAt) [c, f, e] = ['var(--accent)', 'Vérification…', 'Checking…'];
+  else if (r && r.online && r.ring === 'connected' && r.worn !== false && S.wornAt) e += ' · ✓ ' + hm(S.wornAt);
   $('#presence').innerHTML = `<span class="pill" style="--c:${c}"><i></i>${esc(f)} <small>| ${esc(e)}</small></span>`;
   $('#tv').textContent = r ? (r.deviceName || r.gateway || '—') : '—';
   $('#batt').textContent = r && r.battery != null ? r.battery + ' %' + (r.charging ? ' ⚡' : '') : '—';
@@ -195,7 +215,7 @@ function render(){
     const v = latestOf(k), m = M[k];
     return `<div class="tile" style="--c:${m.c}"><div class="l">${m.icon} ${m.fr}${m.en !== m.fr ? ` <span style="font-weight:500;color:var(--faint)">· ${m.en}</span>` : ''}</div>
       <div class="v">${v ? fr(v.data.value) : '—'}<small>${v ? m.unit : ''}</small></div>
-      <div class="t">${v ? when(v.ts) + (v.dur != null ? ' · ⏱ ' + v.dur + ' s' : '') : 'Aucune mesure · No reading'}</div></div>`;
+      <div class="t">${v ? when(v.ts) + ' · ⏱ ' + (v.dur != null ? v.dur + ' s' : '—') : 'Aucune mesure · No reading'}</div></div>`;
   }).join('');
   const sum = vis.map(k => [k, latestOf(k)]).filter(x => x[1]);
   $('#summaryCard').classList.toggle('hidden', !sum.length || !!S.meas);
@@ -224,6 +244,35 @@ function render(){
 }
 
 // ------------------------------------------------------------------ mesure : demande → en cours → résultat
+async function checkStatus(){
+  if (S.meas && !S.meas.final) return;
+  const btn = $('#statusBtn');
+  btn.classList.add('busy'); btn.disabled = true;
+  await refresh();
+  const r = S.snap.ring, now = S.snap.now, t0 = Math.floor(Date.now()/1000);
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+  // TV hors ligne / hors portée : affiché tout de suite, rien n'est lancé
+  if (!r || !r.online || r.ring !== 'connected' || r.unbound) {
+    const phase = !r ? 'unknown' : !r.online ? 'gateway_offline' : 'ring_disconnected';
+    S.meas = { mode:'wear', cmd:'hr', t0, final:true, phase };
+  } else {
+    // preuve récente (mesure réussie ou vérification < 2 min) : réutilisée
+    const recent = Object.values(r.values || {}).map(v => v.ts || 0).concat([S.wornAt || 0]).sort((a,b) => b - a)[0];
+    if (r.worn !== false && recent && now - recent <= wearReuse()) {
+      S.wornAt = S.wornAt && S.wornAt >= recent ? S.wornAt : recent;
+      S.meas = { mode:'wear', cmd:'hr', t0, final:true, phase:'worn', wornAt:S.wornAt, reused:true };
+    } else {
+      const res = await api('/api/webapp/check');
+      if (!res.ok) S.meas = { mode:'wear', cmd:'hr', t0, final:true, phase: res.reason || 'measure_failed', msg:res.error };
+      else S.meas = { mode:'wear', cmd:res.cmd, reqId:res.reqId, t0, shared:!!res.already, phase:'requested',
+                      showValue: S.snap.rights.measures.includes(res.cmd) };
+    }
+  }
+  btn.classList.remove('busy'); btn.disabled = false;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 async function measure(k){
   if (S.meas && !S.meas.final) return;
   if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
@@ -248,7 +297,11 @@ function outcome(){
   const lim = (s.limits[m.cmd] || 90);
   if (!r) { Object.assign(m, {final:true, phase:'unknown'}); return; }
   const v = r.values && r.values[m.cmd], e = r.errors && r.errors[m.cmd], p = r.pending && r.pending[m.cmd];
-  if (match(v, m)) { Object.assign(m, {final:true, phase:'ok', result:v}); return; }
+  if (match(v, m)) {
+    Object.assign(m, {final:true, phase:'ok', result:v});
+    if (m.mode === 'wear') { m.wornAt = m.wornAt || v.ts || now; S.wornAt = m.wornAt; }
+    return;
+  }
   if (match(e, m)) { Object.assign(m, {final:true, phase:e.code || 'measure_failed', result:e}); return; }
   if (!r.online) { Object.assign(m, {final:true, phase:'gateway_offline'}); return; }
   if (r.ring !== 'connected') { Object.assign(m, {final:true, phase:'ring_disconnected'}); return; }
@@ -257,15 +310,45 @@ function outcome(){
     else m.phase = 'requested';
   } else if (now - m.t0 > 15) { Object.assign(m, {final:true, phase:'timeout'}); return; }
   if (now - m.t0 > lim + 30) Object.assign(m, {final:true, phase:'timeout'});
+  // État : wearSec() sans problème => portée (la mesure continue si l'utilisateur a le droit)
+  if (m.mode === 'wear' && m.phase === 'measuring' && !m.wornAt && m.elapsed >= wearSec()) {
+    m.wornAt = now; S.wornAt = now;
+    if (!m.showValue) Object.assign(m, {final:true, phase:'worn'});
+  }
+  if (m.mode === 'wear' && m.phase === 'ok') { m.wornAt = m.wornAt || (m.result && m.result.ts) || now; S.wornAt = m.wornAt; }
 }
 function renderMeasure(){
   const box = $('#mstatus'), m = S.meas;
   document.querySelectorAll('.mbtn').forEach(b => b.disabled = !!(m && !m.final));
+  $('#statusBtn').disabled = !!(m && !m.final);
   if (!m) { box.classList.remove('on'); return; }
   $('#mclose').classList.toggle('hidden', !m.final || m.phase === 'requested' || m.phase === 'measuring');
   outcome();
-  const info = M[m.cmd], lim = S.snap.limits[m.cmd] || 90;
+  const info = M[m.cmd] || M.hr, lim = S.snap.limits[m.cmd] || 90;
   let c = info.c, title = '', detail = '', pct = 0, bar = true;
+  if (m.mode === 'wear') {
+    const worn = `🟢 Bague portée — vérifiée à ${hm(m.wornAt, true)}`;
+    if (m.phase === 'requested') { c = 'var(--accent)'; title = '🔄 Vérification de la bague · Checking'; detail = 'Demande envoyée à la TV · Request sent'; pct = 3; }
+    else if (m.phase === 'measuring' && !m.wornAt) { c = 'var(--accent)'; title = '🔄 Vérification de la bague · Checking'; detail = `⏱ ${m.elapsed} s / ${wearSec()} s`; pct = Math.min(100, m.elapsed / wearSec() * 100); }
+    else if (m.phase === 'measuring') { c = 'var(--ok)'; title = worn; detail = `${info.fr} en cours · measuring · ⏱ ${m.elapsed} s / ${lim} s`; pct = Math.min(100, m.elapsed / lim * 100); }
+    else if (m.phase === 'worn') { bar = false; c = 'var(--ok)'; title = worn; detail = m.reused ? 'Vérification récente réutilisée · Recent check' : 'Ring worn'; }
+    else if (m.phase === 'ok') {
+      bar = false; c = 'var(--ok)'; title = worn; const x = m.result;
+      detail = m.showValue && x && x.data && x.data.value != null
+        ? `✅ ${info.fr} : ${fr(x.data.value)} ${info.unit} · 🕒 ${hm(x.started || m.t0, true)} → ${hm(x.ts, true)} · ⏱ ${x.dur != null ? x.dur : '—'} s`
+        : 'Ring worn';
+    } else if (['ring_removed','ring_disconnected','gateway_offline','unknown'].includes(m.phase)) {
+      bar = false; const e = ERR[m.phase]; c = e[2]; title = e[0]; detail = e[1] + ' · ' + hm((m.result && m.result.ts) || S.snap.now, true);
+    } else if (m.wornAt) { bar = false; c = 'var(--ok)'; title = worn; detail = m.showValue ? `${info.fr} : ${(ERR[m.phase] || ['❌ ' + m.phase])[0]}` : 'Ring worn'; }
+    else if (m.phase === 'timeout') { bar = false; c = 'var(--warn)'; title = '❓ Pas de signal — port non confirmé'; detail = 'Wear not confirmed — vérifie la bague au doigt · check the ring'; }
+    else { bar = false; const e = ERR[m.phase] || ['❌ ' + m.phase, m.msg || '', 'var(--err)']; c = e[2]; title = '⚠️ Vérification impossible · ' + e[0]; detail = e[1]; }
+    box.style.setProperty('--c', c); box.classList.add('on');
+    $('#mtitle').textContent = title; $('#mdetail').textContent = detail;
+    $('#mbarw').classList.toggle('hidden', !bar); $('#mbar').style.width = pct + '%';
+    $('#mprev').textContent = '';
+    $('#statusBtn').disabled = !m.final;
+    return;
+  }
   if (m.phase === 'requested') { title = `⏳ ${info.fr} — demande envoyée`; detail = 'Request sent to the TV…'; pct = 3; }
   else if (m.phase === 'measuring') {
     title = `🟠 ${info.fr} — mesure en cours · Measuring`;
@@ -336,6 +419,7 @@ function renderHistory(){
 }
 $('#hmore').onclick = () => { S.hshown += 20; renderHistory(); };
 $('#mclose').onclick = () => { S.meas = null; render(); };
+$('#statusBtn').onclick = checkStatus;
 
 // ------------------------------------------------------------------ session
 async function refresh(){

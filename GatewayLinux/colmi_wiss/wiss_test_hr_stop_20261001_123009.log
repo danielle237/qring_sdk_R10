@@ -1,0 +1,12 @@
+12:30:09.618 | =================================================================
+12:30:09.619 | WISS - HR ONLY / PRE-STOP BEFORE START
+12:30:09.619 | TARGET : COLMI R10_6401 | 30:32:42:32:64:01
+12:30:09.620 | CONNECT -> STOP HR -> WAIT 3s -> START HR -> STOP -> DISCONNECT
+12:30:09.620 | =================================================================
+12:30:09.620 | HEART_RATE | CONNECT START
+12:30:24.809 | HEART_RATE | NOT AVAILABLE | TimeoutError: 
+12:30:24.809 | HEART_RATE | CONNECTED=False
+12:30:24.810 | 
+12:30:24.810 | === RESULTAT ===
+12:30:24.810 | HR : []
+12:30:24.810 | LOG FILE : /root/colmi_wiss/wiss_test_hr_stop_20261001_123009.log

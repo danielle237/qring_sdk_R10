@@ -57,7 +57,8 @@ Le plus simple : pointer vers le `.env` existant de DANY.
 | `QRING_ADMIN_PORT` | 5055 | port web (l'ancien admin reste sur 5001) |
 | `QRING_OFFLINE_AFTER` | 150 | secondes sans statut avant « hors ligne » |
 | `TELEGRAM_WEAR_CHECK_SECONDS` | 20 | bot : durée du test de port (bouton État) |
-| `TELEGRAM_WEAR_REUSE_SECONDS` | 120 | bot : réutilisation d'un port vérifié |
+| `TELEGRAM_WEAR_CHECK_SECONDS` | 15 | bot + Web App : délai du check « État » avant « portée » |
+| `TELEGRAM_WEAR_REUSE_SECONDS` | 120 | bot + Web App : réutilisation d'un port vérifié |
 | `TELEGRAM_RING_WATCH_MINUTES` | 30 | bot : durée de mise à jour automatique d'un écran de bague |
 | `TELEGRAM_WEBAPP_BASE_URL` | — | adresse HTTPS de QRing Admin (bouton 🌐 Web App) |
 | `TELEGRAM_WEBAPP_MAX_AGE_SECONDS` | 86400 | validité de la signature Telegram de la Web App |
@@ -89,7 +90,7 @@ pm2 logs qring-bot
   boutons 🔄 État, 📊 Historique, ❤️ HR, 🫁 SpO₂, 💓 HRV, 🌡 Température, ℹ️ Infos, 🌐 Vue web
   (seuls les boutons autorisés par l'admin apparaissent).
 - **🔄 État** vérifie le port : TV hors ligne / hors portée affichés tout de suite ; sinon une
-  mesure HR est lancée. La bague n'est « portée » que si une vraie valeur arrive (10–15 s).
+  mesure HR est lancée : sans problème pendant 15 s la bague est « portée » (la mesure continue).
   Sans valeur après `TELEGRAM_WEAR_CHECK_SECONDS` (20 s) : « pas de signal — mal placée ou
   retirée ? », puis la réponse de la TV (retirée, ou pas de résultat). Si l'utilisateur a le
   droit HR, la valeur s'affiche. Un port confirmé est réutilisé `TELEGRAM_WEAR_REUSE_SECONDS`
@@ -101,6 +102,11 @@ pm2 logs qring-bot
   durée — ou bague retirée, hors portée, TV hors ligne, pas de résultat.
   Même mesure lancée par deux personnes : résultat partagé ; autre mesure en cours : refus.
   Le bot et QRing Admin voient les commandes l'un de l'autre (topic `cmd`).
+- **Alertes** (utilisateurs avec le droit « Alertes » + `TELEGRAM_ADMIN_IDS`) :
+  ⚫ TV hors ligne et 🟡 hors portée (confirmées après `TELEGRAM_ALERT_CONFIRM_SECONDS`, 60 s),
+  🖐 bague retirée (détectée par une mesure), 🪫 batterie < `TELEGRAM_ALERT_BATTERY_LOW` % (silencieuse).
+  Une alerte par type et par bague ; au retour à la normale le même message devient « ✅ Rétablie ».
+  Pas d'alerte pour les états déjà présents au démarrage du bot. `TELEGRAM_ALERTS_ENABLED=0` pour couper.
 - Historique : capteurs présents en base avec leur nombre, période, 20 lignes par page,
   ➕ Plus / ⬆️ Plus récentes.
 - Le bouton LIVE (Pi400) est retiré ; QR, notifications, Web App et commandes admin inchangés.
@@ -119,6 +125,38 @@ pm2 logs qring-bot
   visible dans la page « Sessions Web App ».
 - `.env` : `TELEGRAM_WEBAPP_BASE_URL=https://…` doit mener **à QRing Admin** (port 5055 derrière
   Nginx en HTTPS). Telegram exige le HTTPS. `TELEGRAM_BOT_TOKEN` sert à vérifier la signature.
+
+## App téléphone QRingClient (`client_api.py`)
+
+Service **séparé** pour l'app Flutter QRingClient (remplace la Web App) : il se connecte lui-même à
+Mosquitto (état en temps réel) et lit la base (comptes, droits, historique). L'app continue de marcher
+si QRing Admin est arrêté (les mesures ne sont alors pas enregistrées en base, comme pour le bot).
+
+1. Une fois : `psql -h 127.0.0.1 -U iti -d smart_ring -f client_migration.sql` (4 tables, rien n'est supprimé).
+2. `.env` : `CLIENT_API_SECRET` (longue chaîne aléatoire), `CLIENT_API_PORT` (5060), HTTPS
+   (`CLIENT_API_SSL_CERT` / `CLIENT_API_SSL_KEY`, ou Nginx devant), Firebase (`FCM_SERVICE_ACCOUNT_FILE`).
+3. `pip install -r requirements.txt` puis
+   `pm2 start client_api.py --name qring-client-api --interpreter ./venv/bin/python && pm2 save`.
+4. Comptes : QRing Admin → menu **App QRingClient → Comptes app** : créer identifiant + mot de passe,
+   puis **Bagues et droits** (nom affiché, historique, mesures, alertes, mesures autorisées).
+
+- Mesures envoyées avec un reqId `app-…` : l'admin et le bot les voient (une seule mesure à la fois par bague).
+- « Actualiser l'état » : batterie + HR, 15 s sans problème = portée ; si une mesure tourne, l'app fait patienter.
+- Alertes (retirée, hors portée et TV hors ligne confirmées après `CLIENT_ALERT_CONFIRM_SECONDS`,
+  batterie < `CLIENT_ALERT_BATTERY_LOW`, retour à la normale) : liste dans l'app, flux en direct et
+  notification Firebase. Reçues si l'admin a coché « Alertes » ET si l'utilisateur les a gardées
+  (interrupteur général du Profil + interrupteur par bague / toutes les bagues).
+- 5 mots de passe faux = compte bloqué 5 min. Changer le mot de passe ou désactiver le compte déconnecte les téléphones.
+
+| Méthode | URL (`/api/client/…`) | Rôle |
+|---|---|---|
+| POST | `login` | identifiant + mot de passe → jeton |
+| GET | `rings`, `ring/<mac>` | bagues du compte + état en direct |
+| POST | `ring/<mac>/cmd`, `ring/<mac>/check` | mesure, « Actualiser l'état » |
+| GET | `ring/<mac>/history?type=hr&hours=24` | historique |
+| GET | `stream` | temps réel (SSE) |
+| GET | `alerts` | dernières alertes |
+| POST | `ring/<mac>/notify`, `rings/notify`, `prefs`, `password`, `device`, `logout` | réglages, FCM |
 
 ## Service permanent (systemd)
 

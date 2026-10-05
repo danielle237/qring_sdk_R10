@@ -19,6 +19,9 @@ import com.eis.qringmqtt.R
 import com.eis.qringmqtt.ble.RingManager
 import com.eis.qringmqtt.data.AppState
 import com.eis.qringmqtt.data.BrokerConn
+import com.eis.qringmqtt.data.Cmd
+import com.eis.qringmqtt.data.Command
+import com.eis.qringmqtt.data.Source
 import com.eis.qringmqtt.data.RingConn
 import com.eis.qringmqtt.data.tr
 import com.eis.qringmqtt.mqtt.MqttManager
@@ -72,6 +75,24 @@ class RingService : Service() {
         CommandProcessor.mqtt = m
         m.start()
         RingManager.connect()
+
+        // Sommeil : synchronisation automatique une fois par jour (à partir de 8 h), bague connectée
+        // et libre → les nuits de la bague (≈ 7 jours) partent au serveur, qui garde 30 jours et plus.
+        scope.launch {
+            delay(60_000)
+            while (isActive) {
+                val cal = java.util.Calendar.getInstance()
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(cal.time)
+                if (cal.get(java.util.Calendar.HOUR_OF_DAY) >= 8 && AppState.prefs.lastSleepSync != today &&
+                    AppState.ring.value == RingConn.CONNECTED && AppState.active.value == null &&
+                    AppState.syncing.value == null
+                ) {
+                    AppState.prefs.lastSleepSync = today
+                    CommandProcessor.submit(Command(Cmd.SLEEP, null, Source.AUTO))
+                }
+                delay(10 * 60_000L)
+            }
+        }
 
         // Statut toutes les 60 secondes tant que le gateway est connecté (+ IP publique)
         scope.launch {

@@ -227,14 +227,15 @@ object CommandProcessor {
         when (result) {
             is Measurer.Outcome.Ok -> {
                 setWorn(true)
-                AppState.lastResult.value = MeasureResult(c.cmd, true, result.values, null, System.currentTimeMillis())
+                AppState.lastResult.value = MeasureResult(c.cmd, true, result.values, null, System.currentTimeMillis(),
+                    phoneCheck = c.phoneVia == "r")
                 val ts = nowSec()
                 if (c.cmd == Cmd.ALL) {
                     // On range aussi chaque valeur dans sa carte
-                    splitAll(result.values, ts, c.source)
-                    AppState.addReading(Reading("all", result.values, ts, c.source))
+                    splitAll(result.values, ts, c.source, c.phoneBy, c.phoneVia)
+                    AppState.addReading(Reading("all", result.values, ts, c.source, by = c.phoneBy, via = c.phoneVia))
                 } else {
-                    AppState.addReading(Reading(c.cmd.key, result.values, ts, c.source))
+                    AppState.addReading(Reading(c.cmd.key, result.values, ts, c.source, by = c.phoneBy, via = c.phoneVia))
                 }
                 mqtt?.publish(c.cmd.key, base(c).put("status", "ok").merge(result.values), LogEntry.Kind.OUT)
             }
@@ -250,19 +251,22 @@ object CommandProcessor {
 
     /** Bague portée / retirée : mis à jour après chaque mesure, statut republié si ça change. */
     private fun setWorn(w: Boolean) {
+        // Heure du retrait gardée (même après redémarrage) jusqu'à ce que la bague soit de nouveau portée
+        if (!w) { if (AppState.prefs.removedAt == 0L) AppState.prefs.removedAt = nowSec() }
+        else if (AppState.prefs.removedAt != 0L) AppState.prefs.removedAt = 0
         if (AppState.worn.value == w) return
         AppState.worn.value = w
         mqtt?.publishStatusNow(true)
     }
 
-    private fun splitAll(v: JSONObject, ts: Long, src: Source) {
+    private fun splitAll(v: JSONObject, ts: Long, src: Source, by: String = "", via: String = "") {
         if (v.has("hr")) AppState.addReading(Reading("hr", JSONObject().put("value", v.getInt("hr")).put("unit", "bpm")
-            .apply { if (v.has("rri")) put("rri", v.getInt("rri")) }, ts, src))
-        if (v.has("spo2")) AppState.addReading(Reading("spo2", JSONObject().put("value", v.getInt("spo2")).put("unit", "%"), ts, src))
-        if (v.has("temp")) AppState.addReading(Reading("temp", JSONObject().put("value", v.getDouble("temp")).put("unit", "°C"), ts, src))
-        if (v.has("sbp")) AppState.addReading(Reading("bp", JSONObject().put("sbp", v.getInt("sbp")).put("dbp", v.getInt("dbp")).put("unit", "mmHg"), ts, src))
-        if (v.has("hrv")) AppState.addReading(Reading("hrv", JSONObject().put("value", v.getInt("hrv")).put("unit", "ms"), ts, src))
-        if (v.has("stress")) AppState.addReading(Reading("stress", JSONObject().put("value", v.getInt("stress")).put("unit", "score"), ts, src))
+            .apply { if (v.has("rri")) put("rri", v.getInt("rri")) }, ts, src, by = by, via = via))
+        if (v.has("spo2")) AppState.addReading(Reading("spo2", JSONObject().put("value", v.getInt("spo2")).put("unit", "%"), ts, src, by = by, via = via))
+        if (v.has("temp")) AppState.addReading(Reading("temp", JSONObject().put("value", v.getDouble("temp")).put("unit", "°C"), ts, src, by = by, via = via))
+        if (v.has("sbp")) AppState.addReading(Reading("bp", JSONObject().put("sbp", v.getInt("sbp")).put("dbp", v.getInt("dbp")).put("unit", "mmHg"), ts, src, by = by, via = via))
+        if (v.has("hrv")) AppState.addReading(Reading("hrv", JSONObject().put("value", v.getInt("hrv")).put("unit", "ms"), ts, src, by = by, via = via))
+        if (v.has("stress")) AppState.addReading(Reading("stress", JSONObject().put("value", v.getInt("stress")).put("unit", "score"), ts, src, by = by, via = via))
     }
 
     private suspend fun runSync(c: Command) {
@@ -275,7 +279,7 @@ object CommandProcessor {
         }
         // Les données du jour sont gardées pour l'écran Activité
         if (c.cmd != Cmd.HISTORY && (c.day == 0 || c.cmd == Cmd.WORKOUTS || c.cmd == Cmd.SLEEP)) {
-            AppState.addReading(Reading(c.cmd.key, data, nowSec(), c.source))
+            AppState.addReading(Reading(c.cmd.key, data, nowSec(), c.source, by = c.phoneBy, via = c.phoneVia))
         }
         if (c.cmd == Cmd.HISTORY) importHistory(data)
         mqtt?.publish(c.cmd.key, base(c).put("status", "ok").merge(data), LogEntry.Kind.OUT)
@@ -373,6 +377,8 @@ object CommandProcessor {
             put("wanIp", NetInfo.wanIp ?: JSONObject.NULL)
             put("lang", I18n.lang.code)
             put("appVersion", BuildConfig.VERSION_NAME)
+            put("boundAt", AppState.prefs.boundAt.takeIf { it > 0 } ?: JSONObject.NULL)
+            put("removedAt", AppState.prefs.removedAt.takeIf { it > 0 && AppState.worn.value == false } ?: JSONObject.NULL)
             put("ts", nowSec())
         }
     }

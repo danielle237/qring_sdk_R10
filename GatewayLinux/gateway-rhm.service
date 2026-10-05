@@ -1,0 +1,23 @@
+[Unit]
+Description=GATEWAY RHM Linux multi-bagues (zones, bagues COLMI -> MQTT)
+After=network-online.target bluetooth.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/root/gateway_rhm
+# Multi-bagues (zones de l'admin) : une instance de gateway_linux.py par bague + écoute passive.
+# Ancien mode une seule bague : remplacer par  ExecStart=/usr/bin/env python3.14 /root/gateway_rhm/gateway_linux.py
+ExecStart=/usr/bin/env python3.14 /root/gateway_rhm/gateway_multi.py
+# /run/gateway-rhm : verrou Bluetooth partagé, bagues entendues, mesure en cours
+RuntimeDirectory=gateway-rhm
+# Arrêt : le superviseur arrête lui-même les instances puis redémarre le Bluetooth
+KillMode=mixed
+TimeoutStopSec=40
+Restart=always
+RestartSec=5
+# RING_MAC vide ou invalide dans .env (ancien mode) : pas de relance en boucle
+RestartPreventExitStatus=78
+User=root
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône Gateway RHM (Android 8+) : fond blanc + logo -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/rhm_icon_bg" />
+    <foreground android:drawable="@mipmap/ic_rhm_foreground" />
+</adaptive-icon>

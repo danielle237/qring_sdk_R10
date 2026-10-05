@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QRing Admin · Comptes app</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1020;--panel:#121a31;--panel2:#17213d;--line:#223055;--text:#e8ecf8;--muted:#8b96b8;--accent:#5b7cfa;
+      --ok:#2fd08a;--warn:#ffb54a;--err:#ff6b7a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;padding:24px}
+a{color:var(--accent);text-decoration:none}
+h1{font-size:22px;font-weight:800;margin:6px 0 4px}
+.sub{color:var(--muted);margin-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px}
+.card h2{font-size:15px;margin-bottom:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
+input,select{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#0d1427;color:var(--text);font-size:14px;min-width:170px}
+button{padding:10px 14px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-family:inherit}
+button.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+button.danger{background:rgba(255,107,122,.15);color:var(--err);border:1px solid rgba(255,107,122,.35)}
+button.small{padding:6px 10px;font-size:12px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:8px}
+td{padding:10px 8px;border-top:1px solid var(--line);vertical-align:middle}
+.chip{display:inline-block;padding:3px 9px;border-radius:20px;background:var(--panel2);border:1px solid var(--line);font-size:12px;margin:2px}
+.chip.off{opacity:.45;text-decoration:line-through}
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700}
+.b-ok{background:rgba(47,208,138,.15);color:var(--ok)}.b-off{background:rgba(255,107,122,.15);color:var(--err)}
+.muted{color:var(--muted);font-size:12px}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.msg{padding:12px 14px;border-radius:12px;margin-bottom:14px;display:none}
+.msg.err{display:block;background:rgba(255,107,122,.12);color:var(--err);border:1px solid rgba(255,107,122,.35)}
+.msg.ok{display:block;background:rgba(47,208,138,.12);color:var(--ok);border:1px solid rgba(47,208,138,.35)}
+.modal{position:fixed;inset:0;background:rgba(5,8,18,.7);display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+.modal.on{display:flex}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;width:100%;max-width:820px}
+.acc{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.checks{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
+.checks label{display:flex;gap:6px;align-items:center;color:var(--text);font-weight:500;font-size:13px;margin:0}
+.checks input{min-width:0}
+</style>
+</head>
+<body>
+<a href="/">← QRing Admin</a>
+<h1>Comptes de l'app QRingClient</h1>
+<div class="sub">Chaque compte (identifiant + mot de passe) voit seulement les bagues affectées ici, avec les droits choisis.
+  L'app passe par le service <b>qring-client-api</b> (indépendant de cette page).</div>
+<div id="msg" class="msg"></div>
+
+<div class="card">
+  <h2>Nouveau compte</h2>
+  <div class="row">
+    <div><label>Identifiant</label><input id="n-login" autocomplete="off" placeholder="ex. famille.ben"></div>
+    <div><label>Mot de passe (6 caractères min.)</label><input id="n-pass" type="text" autocomplete="new-password"></div>
+    <div><label>Nom affiché</label><input id="n-name" placeholder="ex. Famille Ben"></div>
+    <div><label>Langue</label><select id="n-lang"><option value="fr">Français</option><option value="en">English</option><option value="ar">العربية</option></select></div>
+    <button id="create">Créer le compte</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Comptes</h2>
+  <table>
+    <thead><tr><th>Compte</th><th>Bagues</th><th>Téléphones</th><th>Dernière connexion</th><th>État</th><th></th></tr></thead>
+    <tbody id="users"><tr><td colspan="6" class="muted">Chargement…</td></tr></tbody>
+  </table>
+</div>
+
+<div class="modal" id="modal"><div class="box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 id="m-title">Bagues et droits</h2><button class="ghost small" onclick="closeModal()">Fermer</button></div>
+  <div id="m-list"></div>
+  <div class="acc">
+    <b>Affecter une bague</b>
+    <div class="row" style="margin-top:10px">
+      <div><label>Bague</label><select id="a-ring"></select></div>
+      <div><label>Nom affiché dans l'app</label><input id="a-label" placeholder="ex. Papa"></div>
+    </div>
+    <div id="a-rights"></div>
+    <button id="a-add">Affecter</button>
+  </div>
+</div></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const LABELS = {hr:'❤️ HR', spo2:'💧 SpO2', temp:'🌡 T°', bp:'🩸 Tension', hrv:'💓 HRV', stress:'⚡ Stress', fatigue:'😴 Fatigue', health:'🩺 Health check', steps:'🚶 Pas'};
+let S = {users: [], rings: [], measures: [], cur: null};
+
+function say(kind, text) { const m = $('#msg'); m.className = 'msg ' + kind; m.textContent = text; if (kind === 'ok') setTimeout(() => m.className = 'msg', 4000); }
+async function api(url, opt = {}) {
+  const r = await fetch(url, {credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, ...opt,
+                              body: opt.body ? JSON.stringify(opt.body) : undefined});
+  if (r.status === 401) { location.href = '/login'; throw new Error('auth'); }
+  const j = await r.json().catch(() => ({ok: false, error: 'Réponse invalide'}));
+  if (!j.ok) throw new Error(j.error || 'Erreur');
+  return j;
+}
+const fmt = t => t ? new Date(t).toLocaleString('fr-FR', {dateStyle: 'short', timeStyle: 'short'}) : '—';
+
+async function load() {
+  try {
+    const j = await api('/api/clients');
+    S.users = j.users; S.rings = j.rings; S.measures = j.measures;
+    render();
+  } catch (e) { $('#users').innerHTML = `<tr><td colspan="6" class="muted">${esc(e.message)}</td></tr>`; }
+}
+
+function render() {
+  if (!S.users.length) { $('#users').innerHTML = '<tr><td colspan="6" class="muted">Aucun compte pour l\'instant.</td></tr>'; return; }
+  $('#users').innerHTML = S.users.map(u => `<tr>
+    <td><b>${esc(u.display_name || u.login)}</b><div class="muted">${esc(u.login)} · ${esc(u.lang)}</div></td>
+    <td>${(u.rings || []).map(r => `<span class="chip ${r.active ? '' : 'off'}">💍 ${esc(r.label || r.name || r.mac)}</span>`).join('') || '<span class="muted">aucune</span>'}</td>
+    <td>${u.devices}</td>
+    <td class="muted">${fmt(u.last_login_at)}</td>
+    <td><span class="badge ${u.active ? 'b-ok' : 'b-off'}">${u.active ? 'Actif' : 'Désactivé'}</span>
+        ${u.locked_until && new Date(u.locked_until) > new Date() ? '<div class="muted">bloqué 5 min</div>' : ''}</td>
+    <td><div class="acts">
+      <button class="small" onclick="openAccess(${u.id})">Bagues et droits</button>
+      <button class="ghost small" onclick="resetPass(${u.id})">Mot de passe</button>
+      <button class="ghost small" onclick="toggle(${u.id}, ${!u.active})">${u.active ? 'Désactiver' : 'Activer'}</button>
+      <button class="danger small" onclick="del(${u.id})">Supprimer</button></div></td></tr>`).join('');
+}
+
+$('#create').onclick = async () => {
+  try {
+    const j = await api('/api/clients', {method: 'POST', body: {login: $('#n-login').value, password: $('#n-pass').value,
+                                         display_name: $('#n-name').value, lang: $('#n-lang').value}});
+    say('ok', `Compte « ${j.user.login} » créé. Affectez-lui maintenant ses bagues.`);
+    $('#n-login').value = $('#n-pass').value = $('#n-name').value = '';
+    await load(); openAccess(j.user.id);
+  } catch (e) { say('err', e.message); }
+};
+
+async function resetPass(id) {
+  const p = prompt('Nouveau mot de passe (6 caractères minimum). Les téléphones connectés seront déconnectés.');
+  if (!p) return;
+  try { await api(`/api/clients/${id}`, {method: 'POST', body: {password: p}}); say('ok', 'Mot de passe changé.'); load(); }
+  catch (e) { say('err', e.message); }
+}
+async function toggle(id, active) {
+  try { await api(`/api/clients/${id}`, {method: 'POST', body: {active}}); load(); } catch (e) { say('err', e.message); }
+}
+async function del(id) {
+  const u = S.users.find(x => x.id === id);
+  if (!confirm(`Supprimer définitivement le compte « ${u.login} » et ses affectations ?`)) return;
+  try { await api(`/api/clients/${id}`, {method: 'DELETE'}); say('ok', 'Compte supprimé.'); load(); } catch (e) { say('err', e.message); }
+}
+
+// ------------------------------------------------ bagues et droits
+function rightsForm(prefix, a) {
+  const all = !a || !a.allowed_measures;
+  const ms = S.measures.map(m => `<label><input type="checkbox" class="${prefix}-m" value="${m}"
+     ${(all ? m !== 'bp' : (a.allowed_measures || []).includes(m)) ? 'checked' : ''}> ${LABELS[m] || m}</label>`).join('');
+  return `<div class="checks">
+      <label><input type="checkbox" id="${prefix}-hist" ${!a || a.can_view_history ? 'checked' : ''}> 📊 Historique</label>
+      <label><input type="checkbox" id="${prefix}-live" ${!a || a.can_live ? 'checked' : ''}> ▶ Lancer des mesures</label>
+      <label><input type="checkbox" id="${prefix}-alerts" ${!a || a.can_receive_alerts ? 'checked' : ''}> 🔔 Alertes</label>
+      <label><input type="checkbox" id="${prefix}-active" ${!a || a.active ? 'checked' : ''}> Actif</label></div>
+    <div class="muted">Mesures visibles et autorisées (par défaut toutes sauf la tension, absente de certaines bagues) :</div>
+    <div class="checks">${ms}</div>`;
+}
+function readRights(prefix) {
+  const checked = [...document.querySelectorAll(`.${prefix}-m`)].filter(x => x.checked).map(x => x.value);
+  return {can_view_history: $(`#${prefix}-hist`).checked, can_live: $(`#${prefix}-live`).checked,
+          can_receive_alerts: $(`#${prefix}-alerts`).checked, active: $(`#${prefix}-active`).checked,
+          // Réglage par défaut (tout sauf la tension) => NULL en base
+          allowed_measures: checked.join() === S.measures.filter(m => m !== 'bp').join() ? null : checked};
+}
+
+async function openAccess(id) {
+  S.cur = id;
+  try {
+    const j = await api(`/api/clients/${id}/access`);
+    $('#m-title').textContent = `Bagues et droits — ${j.user.display_name || j.user.login}`;
+    $('#m-list').innerHTML = j.access.length ? j.access.map(a => `<div class="acc" id="acc-${a.access_id}">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div><b>💍 ${esc(a.ring_name || a.mac)}</b> <span class="muted">${esc(a.mac.toUpperCase())} · ${esc(a.model || '')}</span>
+            <div class="muted">Alertes côté utilisateur : ${a.notify ? 'activées' : 'coupées par l\'utilisateur'}</div></div>
+          <div><label>Nom affiché</label><input id="l-${a.access_id}" value="${esc(a.label || '')}"></div></div>
+        ${rightsForm('r' + a.access_id, a)}
+        <div class="acts"><button class="small" onclick="saveAcc(${a.access_id}, ${a.ring_id})">Enregistrer</button>
+          <button class="danger small" onclick="delAcc(${a.access_id})">Retirer</button></div></div>`).join('')
+      : '<div class="muted" style="margin-bottom:10px">Aucune bague affectée.</div>';
+    const used = new Set(j.access.map(a => a.ring_id));
+    $('#a-ring').innerHTML = j.rings.filter(r => !used.has(r.id))
+      .map(r => `<option value="${r.id}">${esc(r.name || r.mac)} — ${esc(r.mac.toUpperCase())}</option>`).join('')
+      || '<option value="">Toutes les bagues sont déjà affectées</option>';
+    $('#a-label').value = '';
+    $('#a-rights').innerHTML = rightsForm('new', null);
+    $('#modal').classList.add('on');
+  } catch (e) { say('err', e.message); }
+}
+function closeModal() { $('#modal').classList.remove('on'); load(); }
+async function saveAcc(accessId, ringId) {
+  try {
+    await api(`/api/clients/${S.cur}/access`, {method: 'POST', body: {ring_id: ringId, label: $(`#l-${accessId}`).value, ...readRights('r' + accessId)}});
+    say('ok', 'Droits enregistrés.'); openAccess(S.cur);
+  } catch (e) { say('err', e.message); }
+}
+async function delAcc(accessId) {
+  if (!confirm('Retirer cette bague du compte ?')) return;
+  try { await api(`/api/clients/${S.cur}/access/${accessId}`, {method: 'DELETE'}); openAccess(S.cur); } catch (e) { say('err', e.message); }
+}
+$('#a-add').onclick = async () => {
+  if (!$('#a-ring').value) return;
+  try {
+    await api(`/api/clients/${S.cur}/access`, {method: 'POST', body: {ring_id: +$('#a-ring').value, label: $('#a-label').value, ...readRights('new')}});
+    say('ok', 'Bague affectée.'); openAccess(S.cur);
+  } catch (e) { say('err', e.message); }
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+load();
+</script>
+</body>
+</html>

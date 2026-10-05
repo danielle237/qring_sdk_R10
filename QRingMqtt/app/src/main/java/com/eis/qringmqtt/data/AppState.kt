@@ -39,6 +39,9 @@ object AppState {
     val log = MutableStateFlow<List<LogEntry>>(emptyList())
     val pendingPublish = MutableStateFlow(0)
 
+    /** Nom donné dans l'admin (« Mme Martin »), affiché entre parenthèses après le nom Bluetooth. */
+    val ringLabel = MutableStateFlow("")
+
     val scanning = MutableStateFlow(false)
     val scanResults = MutableStateFlow<List<ScannedRing>>(emptyList())
 
@@ -46,6 +49,7 @@ object AppState {
         if (::prefs.isInitialized) return
         appContext = context.applicationContext
         prefs = Prefs(appContext)
+        ringLabel.value = prefs.ringLabel
         I18n.lang = Lang.from(prefs.lang) ?: Lang.FR
         historyFile = File(context.filesDir, "history.json")
         loadHistory()

@@ -123,7 +123,7 @@ private fun HistoryRow(m: Metric, r: Reading) {
         Column {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("${formatReading(m, r).first} ${m.unit}", color = C.text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Text("${dayMonth(r.ts)} ${hhmm(r.ts)} · ${r.source.label}", color = C.muted, fontSize = 11.sp)
+                Text("${dayMonth(r.ts)} ${hhmm(r.ts)} · ${r.label}", color = C.muted, fontSize = 11.sp)
             }
             Text(r.ringMac, color = C.muted, fontSize = 10.sp)
         }

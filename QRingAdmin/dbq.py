@@ -9,6 +9,7 @@ QRing Admin — accès PostgreSQL (base smart_ring de DANY).
 Toutes les écritures MQTT passent par une file + un thread : le thread MQTT n'est jamais bloqué.
 """
 import json
+import re
 import logging
 import os
 import queue
@@ -29,18 +30,42 @@ except Exception:  # l'admin démarre même sans psycopg (mode sans base)
 
 
 def _env_bool(name, default):
-    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on", "oui")
+    return os.getenv(name, default).strip().strip(",;").strip().lower() in ("1", "true", "yes", "on", "oui")
+
+
+
+# ---------------------------------------------------------------------------- lecture tolérante du .env
+# « 60, » ou « 60 # commentaire » dans le .env ne doivent pas empêcher le démarrage.
+def _env_number(name, default, cast, pattern):
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return cast(default)
+    m = re.search(pattern, raw)
+    if m:
+        if m.group(0) != raw.strip():
+            logging.getLogger("env").warning("%s=%r dans le .env : valeur lue %s", name, raw, m.group(0))
+        return cast(m.group(0))
+    logging.getLogger("env").warning("%s=%r invalide dans le .env : valeur par défaut %s", name, raw, default)
+    return cast(default)
+
+
+def env_int(name, default):
+    return _env_number(name, default, int, r"-?\d+")
+
+
+def env_float(name, default):
+    return _env_number(name, default, float, r"-?\d+(?:\.\d+)?")
 
 
 DB_ENABLED = _env_bool("DB_ENABLED", "1")
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-DB_PORT = int(os.getenv("DB_PORT", "5432"))
+DB_PORT = env_int("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "smart_ring")
 DB_USER = os.getenv("DB_USER", "iti")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", "5"))
+DB_CONNECT_TIMEOUT = env_int("DB_CONNECT_TIMEOUT", "5")
 PAIRING_DEFAULT_ALERTS = _env_bool("PAIRING_DEFAULT_ALERTS", "0")
-WEBAPP_ACTIVE_SECONDS = max(30, int(os.getenv("TELEGRAM_WEBAPP_ACTIVE_SECONDS", "60")))
+WEBAPP_ACTIVE_SECONDS = max(30, env_int("TELEGRAM_WEBAPP_ACTIVE_SECONDS", "60"))
 
 # Mesures pouvant être autorisées une par une (colonne allowed_measures)
 MEASURE_KEYS = ["hr", "spo2", "temp", "bp", "hrv", "stress", "all"]
@@ -52,6 +77,8 @@ METRIC = {
     "temp": ("temperature", "°C", "temperature"),
     "hrv": ("hrv", "ms", "hrv"),
     "stress": ("stress", "score", None),
+    "fatigue": ("fatigue", "score", None),          # colmi_r02_client get-real-time fatigue
+    "health": ("health_check", "score", None),      # colmi_r02_client get-real-time health-check
 }
 
 _status_lock = threading.Lock()
@@ -205,6 +232,275 @@ def _gateway_id(c, name, device_name=None, version=None):
     return gid
 
 
+def _sleep_nights(c, rid, nights, gateway):
+    """Une ligne par nuit (date du réveil) : insérée, ou mise à jour si la nuit revient.
+    Sans la table (migration pas encore faite) : ignoré, sans bloquer les autres mesures."""
+    def mins(n, k):
+        v = _num(n.get(k))
+        return int(round(v / 60)) if v else 0
+
+    def at(v):
+        v = _num(v)
+        return datetime.fromtimestamp(v, timezone.utc) if v and v > 1e9 else None
+
+    try:
+        with c.transaction():
+            for n in nights:
+                date = str(n.get("date") or "")[:10]
+                if len(date) != 10:
+                    continue
+                c.execute(
+                    """INSERT INTO ring_sleep_nights (ring_id, night_date, start_at, end_at, total_min, deep_min,
+                                                      light_min, rem_min, awake_min, phases, gateway)
+                       VALUES (%s, %s::date, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                       ON CONFLICT (ring_id, night_date) DO UPDATE SET
+                           start_at = EXCLUDED.start_at, end_at = EXCLUDED.end_at,
+                           total_min = EXCLUDED.total_min, deep_min = EXCLUDED.deep_min,
+                           light_min = EXCLUDED.light_min, rem_min = EXCLUDED.rem_min,
+                           awake_min = EXCLUDED.awake_min, phases = EXCLUDED.phases,
+                           gateway = EXCLUDED.gateway, updated_at = NOW()""",
+                    (rid, date, at(n.get("start")), at(n.get("end")), mins(n, "totalSeconds"),
+                     mins(n, "deepSeconds"), mins(n, "lightSeconds"), mins(n, "remSeconds"),
+                     mins(n, "awakeSeconds"), json.dumps(n.get("phases") or []), gateway),
+                )
+    except Exception as e:
+        log.warning("Sommeil non enregistré (table ring_sleep_nights ?) : %s", e)
+
+
+_locations_table = {"ok": None}
+
+
+def _has_locations(c):
+    """Table ring_locations créée (locations_migration.sql) ? Sinon on n'écrit rien."""
+    if _locations_table["ok"] is None:
+        row = c.execute("SELECT to_regclass('public.ring_locations') AS t").fetchone()
+        _locations_table["ok"] = bool(row and row["t"])
+        if not _locations_table["ok"]:
+            log.warning("Table ring_locations absente : lancez locations_migration.sql pour l'historique des déplacements")
+    return _locations_table["ok"]
+
+
+def location_history(mac, hours=24, limit=500):
+    """Déplacements de la bague (du plus récent au plus ancien) : arrivée dans une pièce, hors portée, retour."""
+    with connect() as c:
+        if not _has_locations(c):
+            return []
+        rows = c.execute(
+            """SELECT l.time, l.event, l.rssi, g.name AS gateway, g.zone_name AS zone,
+                      p.name AS prev_gateway, p.zone_name AS prev_zone
+                 FROM ring_locations l JOIN rings r ON r.id = l.ring_id
+                 LEFT JOIN gateways g ON g.id = l.gateway_id
+                 LEFT JOIN gateways p ON p.id = l.prev_gateway_id
+                WHERE r.mac = %s::macaddr AND l.time > NOW() - make_interval(hours => %s)
+                ORDER BY l.time DESC LIMIT %s""",
+            (mac, int(hours), int(limit)),
+        ).fetchall()
+    return [{"ts": int(x["time"].timestamp()), "event": x["event"], "rssi": x["rssi"],
+             "gateway": x["gateway"], "zone": x["zone"] or x["gateway"],
+             "prevGateway": x["prev_gateway"], "prevZone": x["prev_zone"] or x["prev_gateway"]} for x in rows]
+
+
+def sleep_nights(mac, days=30, with_phases=True):
+    """Nuits des `days` derniers jours, de la plus récente à la plus ancienne (phases facultatives)."""
+    with connect() as c:
+        rows = c.execute(
+            """SELECT s.night_date, s.start_at, s.end_at, s.total_min, s.deep_min, s.light_min,
+                      s.rem_min, s.awake_min, s.phases
+                 FROM ring_sleep_nights s JOIN rings r ON r.id = s.ring_id
+                WHERE r.mac = %s::macaddr AND s.night_date >= CURRENT_DATE - %s::int
+                ORDER BY s.night_date DESC""",
+            (mac, int(days)),
+        ).fetchall()
+    return [{"date": row["night_date"].isoformat(),
+             "start": int(row["start_at"].timestamp()) if row["start_at"] else None,
+             "end": int(row["end_at"].timestamp()) if row["end_at"] else None,
+             "total": row["total_min"], "deep": row["deep_min"], "light": row["light_min"],
+             "rem": row["rem_min"], "awake": row["awake_min"],
+             "phases": (row["phases"] or []) if with_phases else None}
+            for row in rows]
+
+
+def night_vitals(mac, start_ts, end_ts):
+    """Mesures enregistrées pendant une nuit (HR, SpO2, HRV, température) : moyenne, min, max et courbe."""
+    out = {}
+    if not start_ts or not end_ts or end_ts <= start_ts:
+        return out
+    with connect() as c:
+        rows = c.execute(
+            """SELECT m.metric, EXTRACT(EPOCH FROM m.time)::bigint AS ts, m.value
+                 FROM ring_measurements m JOIN rings r ON r.id = m.ring_id
+                WHERE r.mac = %s::macaddr AND m.status = 'ok' AND m.value IS NOT NULL
+                  AND m.metric IN ('heart_rate', 'spo2', 'hrv', 'temperature')
+                  AND m.time BETWEEN to_timestamp(%s) AND to_timestamp(%s)
+                ORDER BY m.time""",
+            (mac, int(start_ts), int(end_ts)),
+        ).fetchall()
+    keys = {"heart_rate": "hr", "spo2": "spo2", "hrv": "hrv", "temperature": "temp"}
+    for row in rows:
+        k = keys[row["metric"]]
+        out.setdefault(k, {"points": []})["points"].append([int(row["ts"]), float(row["value"])])
+    for k, d in out.items():
+        vals = [v for _, v in d["points"]]
+        d.update(avg=round(sum(vals) / len(vals), 1), min=min(vals), max=max(vals), count=len(vals))
+    return out
+
+
+def add_ring(mac, name=None):
+    """Bague ajoutée à la main dans l'admin (MAC + nom du résident). (créée ?, nom en base)"""
+    base = "eis/colmi/" + mac.replace(":", "").upper()
+    with connect() as c:
+        old = c.execute("SELECT name FROM rings WHERE mac = %s::macaddr", (mac,)).fetchone()
+        if old:
+            if name:
+                c.execute("UPDATE rings SET name = %s, updated_at = NOW() WHERE mac = %s::macaddr", (name, mac))
+            return False, name or old["name"]
+        c.execute("INSERT INTO rings (mac, name, mqtt_base_topic) VALUES (%s::macaddr, %s, %s)",
+                  (mac, name or f"COLMI {mac}", base))
+    return True, name or f"COLMI {mac}"
+
+
+def rename_ring(mac, name):
+    """Nom de la bague pour tous les comptes (admin). La GATEWAY RHM ne l'écrase jamais."""
+    with connect() as c:
+        row = c.execute(
+            "UPDATE rings SET name = %s, updated_at = NOW() WHERE mac = %s::macaddr RETURNING id",
+            (name, mac),
+        ).fetchone()
+    return bool(row)
+
+
+# ---------------------------------------------------------------- zones (V2)
+MAX_SECONDARY_ZONES = 5   # même limite que la base (CHECK position 0..5)
+
+
+def has_zones():
+    """True si zones_migration.sql a été lancée."""
+    try:
+        with connect() as c:
+            return bool(c.execute("SELECT to_regclass('public.ring_zones') AS t").fetchone()["t"])
+    except Exception:
+        return False
+
+
+def list_zones():
+    """Toutes les gateways (= zones) : nom, pièce, type, dernière vue."""
+    with connect() as c:
+        rows = c.execute(
+            """SELECT name AS gateway, COALESCE(NULLIF(zone_name, ''), name) AS zone_name,
+                      zone_name AS zone_label, gateway_type, active,
+                      EXTRACT(EPOCH FROM last_seen)::bigint AS last_seen
+                 FROM gateways ORDER BY COALESCE(NULLIF(zone_name, ''), name)"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def ensure_gateways(names):
+    """Crée en base les gateways connues seulement par MQTT (pas encore de mesure enregistrée)."""
+    names = [n for n in (names or []) if n]
+    if not names:
+        return
+    with connect() as c:
+        for n in names:
+            c.execute("INSERT INTO gateways (name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (n,))
+
+
+def set_gateway_zone(gateway, zone_name=None, gateway_type=None):
+    """Nom de pièce (« Chambre 12 ») et type ('linux' / 'android') d'une gateway."""
+    if gateway_type not in (None, "", "linux", "android"):
+        raise ValueError("gateway_type : linux ou android")
+    ensure_gateways([gateway])
+    with connect() as c:
+        row = c.execute(
+            """UPDATE gateways SET zone_name = COALESCE(%s, zone_name),
+                                   gateway_type = COALESCE(NULLIF(%s, ''), gateway_type),
+                                   updated_at = NOW()
+                WHERE name = %s RETURNING id""",
+            (zone_name.strip() if isinstance(zone_name, str) else None, gateway_type, gateway),
+        ).fetchone()
+    return bool(row)
+
+
+def ring_zones(mac):
+    """{"main": {...} | None, "secondary": [{...}, ...]} pour une bague."""
+    with connect() as c:
+        rows = c.execute(
+            """SELECT position, gateway, zone_name, gateway_type FROM v_ring_zones
+                WHERE mac = %s::macaddr::text ORDER BY position""", (mac,)
+        ).fetchall()
+    out = {"main": None, "secondary": []}
+    for r in rows:
+        z = {"gateway": r["gateway"], "zone": r["zone_name"], "type": r["gateway_type"]}
+        if r["position"] == 0:
+            out["main"] = z
+        else:
+            out["secondary"].append(z)
+    return out
+
+
+def all_ring_zones():
+    """{MAC: {"main": gateway, "secondary": [gateway, ...]}} pour toutes les bagues qui ont des zones."""
+    with connect() as c:
+        rows = c.execute("SELECT mac, position, gateway FROM v_ring_zones ORDER BY mac, position").fetchall()
+    out = {}
+    for r in rows:
+        z = out.setdefault(r["mac"].upper(), {"main": None, "secondary": []})
+        if r["position"] == 0:
+            z["main"] = r["gateway"]
+        else:
+            z["secondary"].append(r["gateway"])
+    return out
+
+
+def rings_for_gateway(gateway):
+    """MAC des bagues que cette gateway doit écouter (zone principale ou secondaire)."""
+    with connect() as c:
+        rows = c.execute("SELECT mac, position FROM v_ring_zones WHERE gateway = %s ORDER BY mac",
+                         (gateway,)).fetchall()
+    return [{"mac": r["mac"].upper(), "role": "main" if r["position"] == 0 else "secondary"} for r in rows]
+
+
+def set_ring_zones(mac, main, secondary=()):
+    """Remplace les zones d'une bague. main : nom de gateway (obligatoire) ; secondary : 0 à 5 noms.
+    Tout ou rien (transaction)."""
+    secondary = [s for s in (secondary or []) if s and s != main]
+    if not main:
+        raise ValueError("zone principale obligatoire")
+    if len(secondary) > MAX_SECONDARY_ZONES:
+        raise ValueError(f"{MAX_SECONDARY_ZONES} zones secondaires au maximum")
+    if len(set(secondary)) != len(secondary):
+        raise ValueError("zone secondaire en double")
+    with connect() as c:
+        with c.transaction():
+            ring = get_ring(c, mac)
+            if not ring:
+                raise ValueError("bague inconnue")
+            ids = []
+            for name in [main] + secondary:
+                g = c.execute("SELECT id FROM gateways WHERE name = %s", (name,)).fetchone()
+                if not g:
+                    raise ValueError(f"gateway inconnue : {name}")
+                ids.append(g["id"])
+            c.execute("DELETE FROM ring_zones WHERE ring_id = %s", (ring["id"],))
+            for pos, gid in enumerate(ids):
+                c.execute("INSERT INTO ring_zones (ring_id, gateway_id, position) VALUES (%s, %s, %s)",
+                          (ring["id"], gid, pos))
+    return ring_zones(mac)
+
+
+def display_names():
+    """Nom à afficher sur la GATEWAY RHM pour chaque bague : le dernier « Nom affiché »
+    saisi dans « Bagues et droits » (ex. « Mme Martin »), sinon le nom de la bague."""
+    with connect() as c:
+        rows = c.execute(
+            """SELECT r.mac::text AS mac, r.name,
+                      (SELECT a.label FROM client_ring_access a
+                        WHERE a.ring_id = r.id AND a.active AND COALESCE(a.label, '') <> ''
+                        ORDER BY a.updated_at DESC LIMIT 1) AS label
+                 FROM rings r"""
+        ).fetchall()
+    return {row["mac"].upper(): (row["label"] or row["name"] or "") for row in rows}
+
+
 def _ring_id(c, mac, name=None, model=None, firmware=None, base_topic=None):
     rid = _ring_ids.get(mac)
     if rid and not (name or model or firmware):
@@ -311,6 +607,16 @@ def _handle(c, kind, d):
         _event(c, when, rid, gid, d["event_type"], d.get("severity", "info"), d.get("reason"), d.get("details"))
         return
 
+    if kind == "location":
+        # Historique des déplacements (seulement les changements) — table ring_locations
+        if not _has_locations(c):
+            return
+        pgid = _gateway_id(c, d["prev_gateway"]) if d.get("prev_gateway") else None
+        c.execute("""INSERT INTO ring_locations (time, ring_id, gateway_id, prev_gateway_id, event, rssi)
+                     VALUES (%s, %s, %s, %s, %s, %s)""",
+                  (when, rid, gid, pgid, d["event"], _num(p.get("rssi"))))
+        return
+
     if kind != "result":
         return
     sub = d["sub"]
@@ -355,8 +661,7 @@ def _handle(c, kind, d):
         fields["wear_status"] = "worn"
     elif sub == "all":
         for key, (metric, unit, col) in METRIC.items():
-            src = {"hr": "hr", "spo2": "spo2", "temp": "temp", "hrv": "hrv", "stress": "stress"}[key]
-            v = _num(p.get(src))
+            v = _num(p.get(key))
             if v is not None:
                 _measure(c, when, rid, gid, metric, v, unit, "ok", None, extra)
                 if col:
@@ -375,6 +680,9 @@ def _handle(c, kind, d):
             if v is not None:
                 _measure(c, when, rid, gid, metric, v, unit, "ok", None, extra)
         fields.update(steps=_num(p.get("steps")), distance_m=_num(p.get("distance")), calories_raw=_num(p.get("calories")))
+    elif sub == "sleep":
+        _sleep_nights(c, rid, p.get("nights") or [], d.get("gateway"))
+        return
     else:
         return
     _current(c, rid, gid, fields)

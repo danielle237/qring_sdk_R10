@@ -1,0 +1,18 @@
+12:49:03.801 | ======================================================================
+12:49:03.802 | WISS / COLMI SIMPLE - TEST 02
+12:49:03.803 | TARGET : COLMI R10_6401 | 30:32:42:32:64:01
+12:49:03.803 | LOG    : /root/colmi_wiss/wiss_test_02_20261001_124903.log
+12:49:03.803 | INFO -> reset BT -> HR -> reset BT -> SpO2 -> reset BT
+12:49:03.803 | RAW BLE : fichier log uniquement
+12:49:03.803 | ======================================================================
+12:49:03.803 | 
+=== 1. INFO + BATTERY ===
+12:49:03.803 | INFO | CONNECT START | 30:32:42:32:64:01
+12:49:18.923 | INFO | NOT AVAILABLE | TimeoutError: 
+12:49:18.924 | FR : La bague est-elle hors portée ou déchargée ?
+12:49:18.924 | EN : Is the ring out of range or discharged?
+12:49:18.924 | BT RESTART | fin INFO
+12:49:19.187 | BT RESTART | rc=0 | 0.262s
+12:49:21.190 | TEST END | INFO unavailable
+12:49:21.191 | PROGRAM TOTAL : 17.389s
+12:49:21.305 | MQTT | OK | /test_wiss2/R10_6401/result | {"time": "2026-10-01T12:49:21+01:00", "device": "COLMI R10_6401", "mac": "30:32:42:32:64:01", "status": "NOT_AVAILABLE", "battery": null, "charging": null, "hr": [], "hr_error": null, "spo2": [], "spo2_error": null, "program_s": 17.389}

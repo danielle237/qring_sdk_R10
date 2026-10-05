@@ -10,7 +10,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +33,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Lock
@@ -52,6 +61,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.eis.qringmqtt.R
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -80,6 +98,7 @@ enum class Tab(private val k: String, val icon: ImageVector, val locked: Boolean
     ACTIVITY("activity", Icons.Filled.DirectionsWalk, false),
     HISTORY("history", Icons.Filled.ShowChart, false),
     JOURNAL("journal", Icons.Filled.List, true),
+    SCAN("scan", Icons.Filled.Bluetooth, true),
     SETTINGS("settings", Icons.Filled.Settings, true);
 
     val label: String get() = tr("tab.$k")
@@ -156,10 +175,11 @@ fun AppRoot(isTv: Boolean) {
         if (scan) {
             ScanScreen(isTv) { scan = false }
         } else when (tab) {
-            Tab.HOME -> HomeScreen(isTv) { scan = true }
+            Tab.HOME -> HomeScreen(isTv)
             Tab.ACTIVITY -> ActivityScreen(isTv)
             Tab.HISTORY -> HistoryScreen(isTv)
             Tab.JOURNAL -> PinGate(tr("log.title")) { JournalScreen(isTv) }
+            Tab.SCAN -> PinGate(tr("scan.title")) { ScanScreen(isTv) { tab = Tab.HOME } }
             Tab.SETTINGS -> PinGate(tr("set.title")) { SettingsScreen(isTv) { scan = true } }
         }
     }
@@ -167,7 +187,7 @@ fun AppRoot(isTv: Boolean) {
     Box(Modifier.fillMaxSize()) {
         if (isTv) {
             Row(Modifier.fillMaxSize()) {
-                SideNav(tab) { tab = it; scan = false }
+                SideNav(tab, onStatus = { tab = Tab.HOME; scan = false; StatusCheck.start() }) { tab = it; scan = false }
                 Box(Modifier.weight(1f).fillMaxHeight()) { content() }
             }
         } else {
@@ -181,16 +201,29 @@ fun AppRoot(isTv: Boolean) {
             MeasureOverlay()
             ResultOverlay()
         }
+        // Bague éloignée / retirée / reconnectée (TV et téléphone, au-dessus de tous les écrans)
+        RingPopups(isTv)
     }
 }
 
 @Composable
 private fun TopTitle(title: String) {
-    Text(
-        title, color = C.text, fontSize = 22.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 2.dp)
-    )
+    val broker by AppState.broker.collectAsState()
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Image(painterResource(R.drawable.rhm_logo), null, Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)))
+        Spacer(Modifier.width(10.dp))
+        Text(title, color = C.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Dot(brokerColor(broker), 7.dp)
+        Spacer(Modifier.width(4.dp))
+        Text("MQTT", color = C.muted, fontSize = 11.sp)
+    }
 }
+
+private fun brokerColor(b: BrokerConn): Color =
+    if (b == BrokerConn.ONLINE) C.ok else if (b == BrokerConn.CONNECTING) C.warn else C.err
 
 @Composable
 private fun BottomNav(tab: Tab, onSelect: (Tab) -> Unit) {
@@ -218,43 +251,242 @@ private fun BottomNav(tab: Tab, onSelect: (Tab) -> Unit) {
 }
 
 @Composable
-private fun SideNav(tab: Tab, onSelect: (Tab) -> Unit) {
+private fun SideNav(tab: Tab, onStatus: () -> Unit, onSelect: (Tab) -> Unit) {
     val ring by AppState.ring.collectAsState()
     val broker by AppState.broker.collectAsState()
     val info by AppState.info.collectAsState()
+    val ev by StatusCheck.evidence.collectAsState()
+    val st by StatusCheck.state.collectAsState()
+    val cooldown by StatusCheck.cooldownUntil.collectAsState()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
+    val sum = StatusCheck.summary(ring, ev, st, now)
+
     Column(
-        Modifier.width(230.dp).fillMaxHeight().background(C.surface).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        Modifier.width(240.dp).fillMaxHeight().background(C.surface).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Text("◎ QRing", color = C.text, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(bottom = 12.dp))
+        // Logo + nom
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+            Image(painterResource(R.drawable.rhm_logo), null, Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
+            Spacer(Modifier.width(10.dp))
+            Text("GATEWAY RHM", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        }
         Tab.values().forEach { t ->
-            val sel = t == tab
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .focusClick(RoundedCornerShape(12.dp)) { onSelect(t) }
-                    .background(if (sel) C.card else Color.Transparent)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(t.icon, null, tint = if (sel) C.accent else C.muted, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(t.label, color = if (sel) C.text else C.muted, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                if (t.locked) Icon(Icons.Filled.Lock, null, tint = C.muted, modifier = Modifier.size(14.dp))
-            }
+            NavRow(t.icon, t.label, t == tab, t.locked) { onSelect(t) }
+            // « État bague » juste après Accueil : lance la vérification (clignote quand c'est possible)
+            if (t == Tab.HOME) StatusNavRow(ring, st, cooldown, now, onStatus)
         }
         Spacer(Modifier.weight(1f))
-        StatusPill(
-            tr("lbl.ring"), if (ring == RingConn.CONNECTED) "${info.name} · ${info.battery ?: "--"}%" else ring.label,
-            if (ring == RingConn.CONNECTED) C.ok else if (ring == RingConn.CONNECTING) C.warn else C.err,
-            Modifier.fillMaxWidth()
-        )
-        StatusPill(
-            tr("lbl.broker"), broker.label,
-            if (broker == BrokerConn.ONLINE) C.ok else if (broker == BrokerConn.CONNECTING) C.warn else C.err,
-            Modifier.fillMaxWidth()
-        )
+        // Carte « Bague » : portée / retirée / hors portée / non vérifiée
+        Panel(Modifier.fillMaxWidth(), padding = 10.dp) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Dot(sum.color)
+                    Spacer(Modifier.width(6.dp))
+                    Text(sum.title, color = C.text, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (info.name.isNotBlank()) {
+                    Text(info.name, color = C.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                }
+                sidebarDetail(sum, ev)?.let { Text(it, color = C.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+        Panel(Modifier.fillMaxWidth(), padding = 10.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Dot(brokerColor(broker))
+                Spacer(Modifier.width(6.dp))
+                Text(tr("lbl.broker_line", broker.label), color = C.text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
+}
+
+/** Détail court de la carte « Bague » du menu : « vérifiée 14:41 », « depuis 14:45 »… */
+private fun sidebarDetail(sum: StatusCheck.Summary, ev: StatusCheck.Evidence): String? {
+    // Heure seule aujourd'hui, sinon date + heure
+    fun hm(ms: Long): String {
+        val t = hhmmss(ms).substring(0, 5)
+        val d = java.text.SimpleDateFormat("dd/MM", java.util.Locale.FRANCE)
+        val now = System.currentTimeMillis()
+        return if (d.format(java.util.Date(ms)) == d.format(java.util.Date(now))) t else "${d.format(java.util.Date(ms))} $t"
+    }
+    return when (sum.look) {
+        StatusCheck.Look.WORN -> ev.wornAtMs?.let { tr("rs.checked_at", hm(it)) }
+        StatusCheck.Look.REMOVED -> ev.removedAtMs?.let { tr("rs.removed_at", hm(it)) }
+        StatusCheck.Look.OUT -> ev.lostAtMs?.let { tr("rs.since", hm(it)) }
+        else -> null
+    }
+}
+
+@Composable
+private fun NavRow(icon: ImageVector, label: String, selected: Boolean, locked: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .focusClick(RoundedCornerShape(12.dp), onClick = onClick)
+            .background(if (selected) C.card else Color.Transparent)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = if (selected) C.accent else if (icon == Icons.Filled.Bluetooth) Color(0xFF4A8CFF) else C.muted, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = if (selected) C.text else C.muted, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        if (locked) Icon(Icons.Filled.Lock, null, tint = C.muted, modifier = Modifier.size(14.dp))
+    }
+}
+
+/** « État bague » du menu : clignote quand il est cliquable, sinon « … » ou le compte à rebours. */
+@Composable
+private fun StatusNavRow(ring: RingConn, st: StatusCheck.State?, cooldown: Long, now: Long, onClick: () -> Unit) {
+    val can = StatusCheck.canStart(ring, st, cooldown, now)
+    val shape = RoundedCornerShape(12.dp)
+    // Pendant la vérification « … », pendant l'attente le compte à rebours
+    val tag = when {
+        st != null && !st.final -> "…"
+        else -> null
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .focusClick(shape, can, onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.Verified, null, tint = if (can) C.ok else C.muted, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(tr("tab.status"), color = C.muted, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        if (tag != null) Text(tag, color = C.muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+// ====================================================================== popups de la bague
+
+/**
+ * 1) « Votre bague s'est éloignée » : rouge clignotant, OK ; se ferme quand la bague revient.
+ * 2) « Oups, la bague n'est pas portée » : jaune, Réessayer / Fermer ; 30 s.
+ * 3) « Content de vous revoir ! » : vert, Oui, vérifier / Plus tard ; 30 s.
+ */
+@Composable
+private fun RingPopups(isTv: Boolean) {
+    val pop by StatusCheck.popup.collectAsState()
+    val p = pop ?: return
+    // Un popup « éloignée » se ferme tout seul quand la bague revient (StatusCheck le remplace)
+    val color = when (p.kind) {
+        StatusCheck.PopupKind.OUT -> C.err
+        StatusCheck.PopupKind.REMOVED -> C.warn
+        StatusCheck.PopupKind.RECONNECTED -> C.ok
+        StatusCheck.PopupKind.RECENT, StatusCheck.PopupKind.BUSY -> C.accent
+    }
+    val blink = blinkPhase(p.kind == StatusCheck.PopupKind.OUT)
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(p.atMs) { delay(150); try { focus.requestFocus() } catch (_: Exception) {} }
+
+    Dialog(
+        onDismissRequest = { StatusCheck.dismissPopup() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        CompositionLocalProvider(
+            LocalLayoutDirection provides if (I18n.lang.rtl) LayoutDirection.Rtl else LayoutDirection.Ltr
+        ) {
+            val shape = RoundedCornerShape(20.dp)
+            Column(
+                Modifier
+                    .widthIn(max = if (isTv) 460.dp else 340.dp)
+                    .padding(16.dp)
+                    .clip(shape)
+                    .background(
+                        if (p.kind == StatusCheck.PopupKind.OUT) lerp(C.card, Color(0xFF3A1A20), blink) else C.card
+                    )
+                    .border(2.dp, if (p.kind == StatusCheck.PopupKind.OUT) color.copy(alpha = 0.35f + 0.65f * blink) else color, shape)
+                    .padding(horizontal = 22.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val icon = when (p.kind) {
+                    StatusCheck.PopupKind.OUT -> Icons.Filled.BluetoothDisabled
+                    StatusCheck.PopupKind.REMOVED -> Icons.Filled.PanTool
+                    StatusCheck.PopupKind.RECONNECTED -> Icons.Filled.Verified
+                    StatusCheck.PopupKind.RECENT -> Icons.Filled.Verified
+                    StatusCheck.PopupKind.BUSY -> Icons.Filled.HourglassTop
+                }
+                Box(
+                    Modifier.size(if (isTv) 64.dp else 54.dp).clip(CircleShape).background(color.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) { Icon(icon, null, tint = color, modifier = Modifier.size(if (isTv) 36.dp else 30.dp)) }
+
+                val title: String
+                val text: String
+                val question: String?
+                when (p.kind) {
+                    StatusCheck.PopupKind.OUT -> {
+                        title = tr("pop.out_title")
+                        text = tr(if (isTv) "pop.out_text_tv" else "pop.out_text_phone")
+                        question = null
+                    }
+                    StatusCheck.PopupKind.REMOVED -> {
+                        title = tr("pop.removed_title")
+                        text = tr("pop.removed_text")
+                        question = tr("pop.removed_q")
+                    }
+                    StatusCheck.PopupKind.RECONNECTED -> {
+                        title = tr("pop.back_title")
+                        text = tr("pop.back_text")
+                        question = tr("pop.back_q")
+                    }
+                    StatusCheck.PopupKind.RECENT -> {
+                        title = tr("pop.recent_title")
+                        text = p.text ?: ""
+                        question = tr("pop.recent_text")
+                    }
+                    StatusCheck.PopupKind.BUSY -> {
+                        title = tr("pop.busy_title")
+                        text = tr("pop.busy_text", p.text ?: "")
+                        question = null
+                    }
+                }
+                Text(title, color = color, fontSize = if (isTv) 24.sp else 20.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+                Text(text, color = C.muted, fontSize = if (isTv) 15.sp else 13.sp, textAlign = TextAlign.Center)
+                if (question != null) {
+                    Text(question, color = C.text, fontSize = if (isTv) 16.sp else 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (p.kind) {
+                        StatusCheck.PopupKind.OUT ->
+                            PopupButton(tr("pop.ok"), C.err, Modifier.focusRequester(focus)) { StatusCheck.dismissPopup() }
+                        StatusCheck.PopupKind.RECENT, StatusCheck.PopupKind.BUSY ->
+                            PopupButton(tr("pop.ok"), C.accent, Modifier.focusRequester(focus)) { StatusCheck.dismissPopup() }
+                        StatusCheck.PopupKind.REMOVED -> {
+                            PopupButton("↻ " + tr("pop.retry"), C.accent, Modifier.focusRequester(focus)) {
+                                StatusCheck.dismissPopup()
+                                if (p.fromCheck || p.cmd == null) StatusCheck.start(force = true)
+                                else CommandProcessor.submit(Command(p.cmd, null, Source.MANUAL))
+                            }
+                            PopupButton(tr("btn.close"), C.card2) { StatusCheck.dismissPopup() }
+                        }
+                        StatusCheck.PopupKind.RECONNECTED -> {
+                            PopupButton("✓ " + tr("pop.back_yes"), C.ok, Modifier.focusRequester(focus)) {
+                                StatusCheck.dismissPopup()
+                                StatusCheck.start(force = true)
+                            }
+                            PopupButton(tr("btn.later"), C.card2) { StatusCheck.dismissPopup() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PopupButton(text: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .focusClick(RoundedCornerShape(14.dp), onClick = onClick)
+            .background(color)
+            .padding(horizontal = 22.dp, vertical = 12.dp)
+    ) { Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
 }
 
 // ====================================================================== TV : mesure plein écran
@@ -262,9 +494,13 @@ private fun SideNav(tab: Tab, onSelect: (Tab) -> Unit) {
 @Composable
 private fun MeasureOverlay() {
     val active by AppState.active.collectAsState()
+    val check by StatusCheck.state.collectAsState()
     var hiddenFor by remember { mutableLongStateOf(0L) }
     val a = active ?: return
     if (hiddenFor == a.startedAtMs) return
+    // Mesure lancée par « État bague » : suivie dans le bandeau, pas en plein écran
+    val c = check
+    if (c != null && !c.final && !c.followed && c.cmd == a.cmd) return
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(a.startedAtMs) { while (true) { now = System.currentTimeMillis(); delay(500) } }
@@ -313,8 +549,13 @@ private fun ResultOverlay() {
     val res by AppState.lastResult.collectAsState()
     val active by AppState.active.collectAsState()
     var closedAt by remember { mutableLongStateOf(0L) }
+    val check by StatusCheck.state.collectAsState()
     val r = res ?: return
     if (active != null || closedAt == r.atMs) return
+    // Retirée / hors portée : affichés par les popups
+    if (r.error == com.eis.qringmqtt.data.Err.RING_REMOVED || r.error == com.eis.qringmqtt.data.Err.RING_DISCONNECTED) return
+    // Résultat de la vérification « État bague » : affiché dans le bandeau
+    if (StatusCheck.isCheckResult(check, r.cmd, r.atMs)) return
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(r.atMs) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
     if (now - r.atMs > 20_000) return

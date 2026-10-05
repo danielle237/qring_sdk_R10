@@ -147,12 +147,23 @@ tr.flash{animation:flash 1.2s ease}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 .btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:8px 13px;border-radius:10px;font-size:12.5px;font-weight:700;transition:.15s;display:inline-flex;align-items:center;gap:6px}
 .btn:hover{border-color:var(--accent)}
+.btn:disabled{opacity:.4;cursor:not-allowed}.btn:disabled:hover{border-color:var(--line)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn.danger{color:var(--err)}
 .btn.danger:hover{border-color:var(--err)}
 .inp{flex:1;min-width:150px;padding:8px 11px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-family:"JetBrains Mono",monospace;font-size:12.5px;outline:none}
 .inp:focus{border-color:var(--accent)}
 select.inp{font-family:inherit}
+img.avatar{object-fit:cover;padding:0}
+.pbox{display:flex;gap:14px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:var(--panel2)}
+.pbox .ph{width:84px;height:84px;border-radius:50%;object-fit:cover;background:var(--line);display:grid;place-items:center;font-size:34px;color:var(--muted);flex:0 0 84px}
+.zbox{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:var(--panel2)}
+.zbox h4{font-size:12.5px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.zbox .zl{font-size:11.5px;color:var(--muted);margin:8px 0 4px}
+.zbox .zr{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.zbox .zr select{flex:1}
+.zbox .x2{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;width:30px;height:30px}
+.ztag{display:inline-block;font-size:10.5px;color:var(--muted);margin-top:2px}
 .scanlist{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
 .scanlist .it{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12.5px}
 .scanlist .it .mono{color:var(--muted);font-size:11.5px}
@@ -194,6 +205,10 @@ select.inp{font-family:inherit}
 @keyframes in{from{transform:translateY(12px);opacity:0}}
 
 /* ------------------------------------------------ Telegram / PostgreSQL */
+.nav2 .sec{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#6f7ca8;padding:14px 12px 6px;font-weight:700}
+.nav2 a{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;color:#a8b3d6;text-decoration:none;font-weight:600;font-size:13.5px}
+.nav2 a:hover{background:rgba(255,255,255,.05);color:#fff}
+.nav2 svg{width:18px;height:18px;flex:none}
 .nav .sec{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#6f7ca8;padding:14px 12px 6px;font-weight:700}
 .dbbox{margin-top:8px;cursor:pointer;position:relative}
 .dbbox .caret{float:right;color:#8391bd;font-size:10px;margin-top:2px}
@@ -257,6 +272,9 @@ select.inp{font-family:inherit}
     <a data-view="tgusers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7M17 11a3 3 0 1 0 0-6M22 21c0-3-2-5-4-6"/></svg>Utilisateurs<span class="count" id="c-users">·</span></a>
     <a data-view="webapp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Web App<span class="count" id="c-webapp">·</span></a>
   </nav>
+  <!-- Hors de .nav : lien vers une page à part (pas une vue de cette page) -->
+  <div class="nav2"><div class="sec">App QRingClient</div>
+    <a href="/clients"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Comptes app</a></div>
   <div class="spacer"></div>
   <div class="broker"><div class="l">Broker MQTT</div><span id="broker" class="badge b-mute"><i></i>…</span><div class="l mono" style="margin-top:6px">{{ broker }}</div></div>
   <div class="broker dbbox" id="dbbox" title="Détails PostgreSQL"><div class="l">PostgreSQL <span class="caret">▼</span></div><span id="dbbadge" class="badge b-mute"><i></i>…</span>
@@ -289,7 +307,7 @@ select.inp{font-family:inherit}
         <button class="chip" data-f="offline">Hors ligne<span class="n"></span></button>
         <button class="chip" data-f="removed">Retirées<span class="n"></span></button>
         <button class="chip" data-f="alert">Alertes<span class="n"></span></button>
-        <div class="right"><button class="btn" id="measure-all-online">▶ Mesurer ♥ + SpO2 (en ligne)</button></div>
+        <div class="right" style="display:flex;gap:8px"><button class="btn primary" onclick="openAddRing()">➕ Ajouter une bague</button><button class="btn" id="measure-all-online">▶ Mesurer ♥ + SpO2 (en ligne)</button></div>
       </div>
       <div class="tablewrap">
         <table>
@@ -306,9 +324,18 @@ select.inp{font-family:inherit}
 
     <!-- ---------------- GATEWAYS -->
     <section class="view" id="v-gateways">
-      <div class="bar"><span style="color:var(--muted);font-size:13px">Chaque TV / téléphone écoute <span class="mono">{{ prefix }}/gateway/&lt;nom&gt;/cmd</span></span></div>
+      <div class="bar" style="justify-content:space-between;flex-wrap:wrap;gap:10px"><span style="color:var(--muted);font-size:13px">Chaque Gateway RHM écoute <span class="mono">{{ prefix }}/gateway/&lt;nom&gt;/cmd</span></span>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer" title="Pour tous les comptes du Client RHM">
+          <input type="checkbox" id="set-gwtype" onchange="saveClientSetting('showGatewayType', this.checked)">
+          Client RHM : afficher « GATEWAY RHM EN LIGNE : Linux / Android »
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px" title="Barre de progression du Client RHM pendant « HR + SpO2 + T° + HRV »">
+          Durée estimée « Tout mesurer » (s)
+          <input type="number" id="set-dur-all" min="5" max="600" class="inp" style="flex:0 0 80px;min-width:0">
+          <button class="btn" onclick="saveMeasureSeconds()">Enregistrer</button>
+        </label></div>
       <div class="gws" id="gws"></div>
-      <div class="empty" id="gw-empty"><b>Aucun gateway détecté</b>Lancez l'application sur une TV connectée au broker.</div>
+      <div class="empty" id="gw-empty"><b>Aucune Gateway RHM détectée</b>Lancez l'application Gateway RHM connectée au broker.</div>
     </section>
 
     <!-- ---------------- JOURNAL -->
@@ -375,6 +402,12 @@ select.inp{font-family:inherit}
 <aside class="drawer" id="drawer">
   <div class="dh"><div class="avatar" id="d-av">R</div><div><h2 id="d-title">Bague</h2><div class="mono" style="color:var(--muted);font-size:12px" id="d-mac"></div></div><button class="x" id="d-close">✕</button></div>
   <div class="db">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="d-name" maxlength="60" placeholder="Nom de la bague (ex. Mme Martin)" style="flex:1;background:var(--card, #1b2130);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:9px 12px;font-family:inherit;font-size:13px;outline:none">
+      <button class="btn" onclick="renameRing()">Renommer</button>
+    </div>
+    <div class="pbox" id="d-photo"></div>
+    <div class="zbox" id="d-zones" style="display:none"></div>
     <div class="tiles" id="d-tiles"></div>
     <div class="bar" id="d-types"></div>
     <div class="chart"><svg id="d-chart" viewBox="0 0 600 170" preserveAspectRatio="none"></svg><div id="d-stats" style="color:var(--muted);font-size:12px;margin-top:6px"></div></div>
@@ -392,14 +425,35 @@ select.inp{font-family:inherit}
   </div>
 </div>
 
+<!-- ======================================================== MODAL AJOUTER UNE BAGUE -->
+<div class="modal" id="addmodal" onclick="if(event.target===this)closeAddRing()">
+  <div class="mbox" style="width:min(520px,100%)">
+    <div class="mhead"><div class="avatar">＋</div>
+      <div><h2>Ajouter une bague</h2><div style="color:var(--muted);font-size:12px">Sans toucher au .env des Gateway RHM</div></div>
+      <button class="x" onclick="closeAddRing()">✕</button></div>
+    <div class="mbody">
+      <div class="zl" style="font-size:12px;color:var(--muted);margin-bottom:4px">Adresse MAC de la bague</div>
+      <input class="inp" id="add-mac" style="width:100%;margin-bottom:12px" placeholder="30:32:42:32:64:01" maxlength="17">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Nom du résident</div>
+      <input class="inp" id="add-name" style="width:100%;margin-bottom:12px;font-family:inherit" placeholder="Mme Martin" maxlength="60">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Zone principale (sa chambre) — facultatif</div>
+      <select class="inp" id="add-main" style="width:100%;margin-bottom:14px"></select>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:14px">Ensuite, la fiche de la bague s'ouvre : zones secondaires, photo, accès des comptes.</div>
+      <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeAddRing()">Annuler</button>
+        <button class="btn primary" id="add-go" onclick="addRing()">Ajouter</button></div>
+      <div id="add-err" style="color:var(--err);font-size:12.5px;margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts"></div>
 
 <script>
 const PREFIX = {{ prefix|tojson }};
-const S = { rings:{}, gateways:{}, events:[], broker:false, filter:'all', jfilter:'all', q:'', view:'rings', drawerMac:null, dtype:'hr', offset:0 };
+const S = { rings:{}, gateways:{}, zones:{ enabled:false, rings:{}, names:{} }, events:[], broker:false, filter:'all', jfilter:'all', q:'', view:'rings', drawerMac:null, dtype:'hr', offset:0 };
 const COLORS = { hr:'var(--hr)', spo2:'var(--spo2)', temp:'var(--temp)', bp:'var(--bp)', hrv:'var(--hrv)', stress:'var(--stress)', steps:'var(--steps)', all:'var(--accent)' };
 const LABELS = { hr:'Cœur', spo2:'SpO2', temp:'Température', bp:'Tension', hrv:'HRV', stress:'Stress', all:'Tout', steps:'Pas', sleep:'Sommeil', sedentary:'Sédentarité', workouts:'Entraînements', history:'Historique bague', battery:'Batterie', info:'Infos' };
-const RING_STATE = { connected:['b-ok','Bague connectée'], connecting:['b-warn pulse','Connexion…'], disconnected:['b-err','Bague déconnectée'], bluetooth_off:['b-err','Bluetooth coupé'], no_ring:['b-mute','Aucune bague'], unbound:['b-mute','Dissociée'], unknown:['b-mute','Inconnu'] };
+const RING_STATE = { connected:['b-ok','Bague connectée'], connecting:['b-warn pulse','Connexion…'], disconnected:['b-err','Bague déconnectée'], bluetooth_off:['b-err','Bluetooth coupé'], no_ring:['b-mute','Aucune bague'], unbound:['b-mute','Dissociée'], standby:['b-info','En veille (bague prise ailleurs)'], unknown:['b-mute','Inconnu'] };
 let soundOn = localStorageGet('sound') === '1';
 
 function localStorageGet(k){ try { return localStorage.getItem(k) } catch(e){ return null } }
@@ -443,24 +497,59 @@ function valueCell(r, key){
   if (key === 'spo2' && d.value && d.value < 92) warn = 'color:var(--err)';
   if (key === 'hr' && d.value && (d.value > 120 || d.value < 45)) warn = 'color:var(--err)';
   if (key === 'temp' && d.value && d.value >= 38) warn = 'color:var(--err)';
-  return `<div class="val"><div class="v" style="${warn}">${main}</div><div class="t">${ago(v.ts)}${v.source==='manual'?' · manuel':''}</div></div>`;
+  return `<div class="val"><div class="v" style="${warn}">${main}</div><div class="t">${ago(v.ts)}${srcLabel(v)}</div></div>`;
+}
+
+/** Origine d'une mesure : 📱 téléphone (Client RHM) · 📺 gateway (télécommande) · 🌐 à distance · ⏱ auto */
+function srcLabel(v){
+  if (v.source === 'phone') return ` · 📱 ${v.via === 'r' ? 'actualisée' : 'prise'}${v.by && v.by !== '*' ? ' par ' + esc(v.by) : ''}`;
+  return { manual:' · via G-RHM', mqtt:' · 🌐 via Serveur', auto:' · ⏱ auto' }[v.source] || '';
 }
 
 function batteryCell(r){
   if (r.battery == null) return '<span class="none" style="color:var(--faint)">—</span>';
   const b = r.battery, col = b < 20 ? 'var(--err)' : b < 40 ? 'var(--warn)' : 'var(--ok)';
-  return `<div class="battery"><div class="shell"><div class="fill" style="width:${b}%;background:${col}"></div></div>${b}%${r.charging?' ⚡':''}</div>`;
+  const v = (r.values||{}).battery;
+  const org = v && v.source ? `<div style="color:var(--faint);font-size:10.5px;margin-top:2px">${ago(v.ts)}${srcLabel(v)}</div>` : '';
+  return `<div class="battery"><div class="shell"><div class="fill" style="width:${b}%;background:${col}"></div></div>${b}%${r.charging?' ⚡':''}</div>${org}`;
 }
 
 /** Un seul badge, le plus important : dissociée > gateway hors ligne > Bluetooth > retirée > OK */
+/** Gateway RHM de la bague (clé = nom du topic ; la bague connaît le nom affiché) */
+function gwOf(r){
+  return Object.values(S.gateways).find(g => g.name === r.gateway || (r.deviceName && (g.deviceName === r.deviceName || g.name === r.deviceName)) || (r.gateway && g.deviceName === r.gateway));
+}
+/** « 14:32 » aujourd'hui, sinon « 28/09 14:32 » */
+function hmDay(ts){ const d = new Date(ts*1000), t = new Date(), hm = d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  return d.toDateString() === t.toDateString() ? hm : d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) + ' ' + hm; }
+/** 4 états : associée · portée / retirée / hors portée, ou dissociée ; + pastille GATEWAY RHM */
 function stateBadges(r){
-  let b;
-  if (r.unbound) b = ['b-mute','Dissociée'];
-  else if (!r.online) b = ['b-err','Gateway hors ligne'];
+  const pill = (cls, t) => `<span class="badge ${cls}" style="font-size:10.5px;padding:2px 7px"><i></i>${t}</span>`;
+  const g = r.unbound ? gwOf(r) : null;
+  const gwOn = r.unbound ? !!(g && g.online) : !!r.online;
+  let b, sub = '', subCol = 'var(--faint)';
+  if (r.unbound) { b = ['b-err','Bague dissociée de la GATEWAY RHM']; sub = r.unboundTs ? `Dissociée à ${hmDay(r.unboundTs)}` : ''; subCol = 'var(--err)'; }
+  else if (r.ring === 'no_ring') { b = ['b-mute','Aucune bague']; sub = ''; }
+  else if (!r.online) {
+    // GATEWAY RHM hors ligne : dernier état connu, en gris
+    const last = (r.ring === 'disconnected' || r.ring === 'connecting') ? 'hors portée' : r.ring === 'bluetooth_off' ? 'Bluetooth coupé'
+      : r.worn === false ? 'retirée' : r.worn === true ? 'portée' : 'connectée';
+    b = ['b-mute', `Bague associée · ${last}`]; sub = `Dernier état connu · ${hmDay(r.statusTs)}`;
+  }
+  else if (r.ring === 'disconnected' || r.ring === 'connecting') { b = ['b-err','Bague associée · hors portée']; subCol = 'var(--err)'; if (r.outTs) sub = `Hors portée depuis ${hmDay(r.outTs)} · ${ago(r.outTs)}`; }
+  else if (r.ring === 'bluetooth_off') b = ['b-err','Bluetooth coupé'];
   else if (r.ring !== 'connected') b = (RING_STATE[r.ring] || RING_STATE.unknown);
-  else if (r.worn === false) b = ['b-warn pulse','Bague retirée'];
-  else b = ['b-ok', r.worn ? 'Connectée · portée' : 'Connectée'];
-  return `<span class="badge ${b[0]}"><i></i>${b[1]}</span>`;
+  else if (r.worn === false) { b = ['b-warn pulse','Bague associée · retirée']; if (r.removedTs) sub = `Retirée à ${hmDay(r.removedTs)} · ${ago(r.removedTs)}`; subCol = 'var(--warn)'; }
+  else if (r.worn === true) { b = ['b-ok','Bague associée · portée']; if (r.wornTs) { sub = `Vérifiée à ${hmDay(r.wornTs)} · ${ago(r.wornTs)}`; subCol = 'var(--ok)'; } }
+  else b = ['b-info','Bague associée · connectée'];
+  const gwPill = r.statusTs ? (gwOn ? pill('b-ok','GATEWAY RHM EN LIGNE') : pill('b-err','GATEWAY RHM HORS LIGNE')) : '';
+  const multi = (r.multiGw && r.multiGw.length > 1)
+    ? `<div style="margin-top:4px" title="${esc(r.multiGw.join(' · '))}">${pill('b-warn','⚠ ' + r.multiGw.length + ' GATEWAYS')}</div>` : '';
+  const L = r.location;
+  const loc = L && L.ranking && L.ranking.length > 1 || (L && L.gateway && L.ranking) ? `<div style="font-size:10.5px;margin-top:3px;color:var(--muted)" title="Localisation par test de portée (à tour de rôle)">📍 ${L.reachable ? esc(L.gateway) + (L.rssi != null ? ' · ' + L.rssi + ' dBm' : '') : 'non entendue'} · ${hmDay(L.ts)}${L.ranking && L.ranking.length > 1 ? ' · ' + L.ranking.map(x => esc(x.gateway) + ' ' + (x.reachable ? x.rssi : '—')).join(' / ') : ''}</div>` : '';
+  return `<span class="badge ${b[0]}"><i></i>${b[1]}</span>` + multi + loc
+    + (sub ? `<div style="font-size:10.5px;margin-top:3px;color:${subCol}">${sub}</div>` : '')
+    + (gwPill ? `<div style="margin-top:4px">${gwPill}</div>` : '');
 }
 
 function wornBadge(r){
@@ -473,12 +562,14 @@ const ICON_DOTS = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" c
 
 function rowHtml(r){
   const st = ringStatus(r);
-  const can = r.online && !r.unbound && r.ring === 'connected';
+  // Gateway Linux : « hors portée » = dernier échec, on peut retenter (la mesure revérifie la bague)
+  const lx = (gwOf(r) || {}).gatewayType === 'linux';
+  const can = r.online && !r.unbound && (r.ring === 'connected' || (lx && (r.ring === 'disconnected' || r.ring === 'connecting')));
   const busy = Object.keys(r.pending||{}).length > 0;
   const btn = (k, t, title) => `<button class="ab" style="--c:${COLORS[k]}" title="${title}" ${can?'':'disabled'} onclick="cmd('${r.mac}','${k}')">${t}</button>`;
   return `<tr id="r-${r.mac.replace(/:/g,'')}" class="${st==='offline'||st==='unbound'?'offline':''} ${st==='removed'?'removed':''} ${st==='disc'?'disc':''}">
-    <td class="keep"><div class="ring-cell" onclick="openDrawer('${r.mac}')"><div class="avatar">${esc(initials(r))}</div><div><b>${esc(r.name || 'Bague')}</b><small class="mono">${esc(r.mac)}</small></div></div></td>
-    <td><div class="gw" title="LAN ${esc(r.lanIp || '—')} · WAN ${esc(r.wanIp || '—')}"><b>${esc(r.deviceName || r.gateway || '—')}</b><small class="mono">${esc(r.lanIp || '—')}</small></div></td>
+    <td class="keep"><div class="ring-cell" onclick="openDrawer('${r.mac}')">${r.photoV ? `<img class="avatar" src="/api/ring/${r.mac}/photo?v=${r.photoV}" alt="">` : `<div class="avatar">${esc(initials(r))}</div>`}<div><b>${esc(r.name || r.bleName || 'Bague')}</b><small class="mono">${r.bleName && r.bleName !== r.name ? esc(r.bleName) + ' · ' : ''}${esc(r.mac)}</small></div></div></td>
+    <td><div class="gw" title="LAN ${esc(r.lanIp || '—')} · WAN ${esc(r.wanIp || '—')}"><b>${esc(r.deviceName || r.gateway || '—')}</b><small class="mono">${esc(r.lanIp || '—')}</small>${zoneTag(r.mac)}</div></td>
     <td class="keep" title="Dernier statut : ${ago(r.statusTs)}">${stateBadges(r)}<div style="color:var(--faint);font-size:10.5px;margin-top:3px">statut ${ago(r.statusTs)}</div></td>
     <td>${batteryCell(r)}</td>
     <td>${valueCell(r,'hr')}</td><td>${valueCell(r,'spo2')}</td><td>${valueCell(r,'temp')}</td><td>${valueCell(r,'bp')}</td>
@@ -561,25 +652,39 @@ function renderGateways(force){
         <div><h3>${esc(g.name)}</h3><div class="dn">${esc(g.deviceName || '')}</div></div>
         ${g.online ? '<span class="badge b-ok"><i></i>En ligne</span>' : '<span class="badge b-err"><i></i>Hors ligne</span>'}</div>
       <div class="kv">
-        <span>Bague associée</span><span class="mono">${g.ringMac ? esc((ring && ring.name ? ring.name + ' · ' : '') + g.ringMac) : '—'}</span>
+        ${S.zones.enabled ? `<span>Pièce (zone)</span><span>${S.zones.names[g.name] ? '🏠 ' + esc(S.zones.names[g.name]) : '<span style="color:var(--muted)">non nommée</span>'}</span>` : ''}
+        ${g.multi ? multiRings(g) : `<span>Bague associée</span><span class="mono">${g.ringMac ? esc((ring && ring.name ? ring.name + ' · ' : '') + g.ringMac) : '—'}</span>`}
+        ${g.ring==='standby' ? `<span>Bague prise par</span><span style="color:var(--info)">${g.ringOwner ? (g.ringOwnerType==='linux' ? '🐧 ' : '📺 ') + esc(g.ringOwner) : 'personne (en attente)'}</span>` : ''}
+        ${g.roaming==='race' ? `<span>Roaming</span><span>🏁 course (la 1ʳᵉ qui joint la bague mesure)</span>` : ''}
         <span>État bague</span><span>${esc((RING_STATE[g.ring]||RING_STATE.unknown)[1])}</span>
         <span>IP LAN</span><span class="mono">${esc(g.lanIp || '—')}</span>
         <span>IP WAN</span><span class="mono">${esc(g.wanIp || '—')}</span>
         <span>Langue</span><span>${esc({fr:'Français',en:'English',ar:'العربية'}[g.lang] || '—')}</span>
         <span>Dernier statut</span><span>${ago(g.statusTs)}</span>
+        ${g.gatewayType==='linux' ? `<span>Type</span><span>🐧 Linux ${esc((g.appVersion||'').replace(/^linux-/,'v'))}</span>` : ''}
+        ${g.sys && g.online ? sysLine(g.sys) : ''}
       </div>
-      <div class="row" style="margin-bottom:8px">
+      ${S.zones.enabled ? `<div class="row" style="margin-bottom:8px">
+        <input class="inp" style="font-family:inherit" id="zone-${esc(g.name)}" maxlength="60" placeholder="Pièce ex. Chambre 12, Salon" value="${esc(S.zones.names[g.name] || '')}">
+        <button class="btn" onclick="saveGwZone('${esc(g.name)}')">🏠 Nommer la pièce</button>
+      </div>` : ''}
+      ${g.multi ? '' : `<div class="row" style="margin-bottom:8px">
         <input class="inp" id="bind-${esc(g.name)}" placeholder="MAC ex. C4:A1:5F:22:A4:F1">
         <button class="btn primary" onclick="bindInput('${esc(g.name)}')">Associer</button>
-      </div>
+      </div>`}
       <div class="row">
         <button class="btn" onclick="gcmd('${esc(g.name)}','scan')">📡 Scanner</button>
-        <button class="btn danger" onclick="if(confirm('Dissocier la bague de ${esc(g.name)} ?')) gcmd('${esc(g.name)}','unbind')" ${g.ringMac?'':'disabled'}>Dissocier</button>
+        ${g.multi ? '' : `<button class="btn danger" onclick="if(confirm('Dissocier la bague de ${esc(g.name)} ?')) gcmd('${esc(g.name)}','unbind')" ${g.ringMac?'':'disabled'}>Dissocier</button>`}
         <select class="inp" style="flex:0 0 120px" onchange="gcmd('${esc(g.name)}','lang',{value:this.value})">
           <option value="">Langue…</option><option value="fr">Français</option><option value="en">English</option><option value="ar">العربية</option>
         </select>
         <button class="btn" onclick="gcmd('${esc(g.name)}','ping')">Ping</button>
+        <button class="btn danger" onclick="delGateway('${esc(g.name)}')" ${g.online?'disabled title="Gateway en ligne : éteignez-la avant de la supprimer"':'title="Supprimer cette Gateway RHM de la liste"'}>🗑 Supprimer</button>
       </div>
+        ${g.gatewayType==='linux' ? `<div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)"><div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Maintenance Linux</div><div class="row">
+        <button class="btn" onclick="gwRestart('${esc(g.name)}','btrestart')" ${g.online?'':'disabled'} title="Redémarre le service Bluetooth de la machine puis teste la bague (≈ 15 s)">📶 Bluetooth</button>
+        <button class="btn" onclick="gwRestart('${esc(g.name)}','restart')" ${g.online?'':'disabled'} title="Relance le programme de la gateway (≈ 10 s)">🔄 Service</button>
+        <button class="btn danger" onclick="gwRestart('${esc(g.name)}','reboot')" ${g.online?'':'disabled'} title="Redémarre tout le boîtier Linux (≈ 1 min)">⏻ Reboot machine</button></div></div>` : ''}
       ${bind}${scan}
     </div>`;
   }).join('');
@@ -610,6 +715,39 @@ async function cmd(mac, c){
 }
 async function gcmd(name, c, extra){ const res = await post(`/api/gateway/${encodeURIComponent(name)}/cmd`, Object.assign({ cmd:c }, extra||{})); if (res.error) toast('error', 'Commande refusée', res.error); else if (c==='bind') { S.gateways[name].bind = { ts:nowS(), status:'searching' }; renderGateways(); } else toast('info', `Commande envoyée à ${name}`, c); }
 function bindInput(name){ const v = document.getElementById('bind-' + name).value.trim(); if (!v) return; gcmd(name, 'bind', { mac:v }); }
+function sysLine(x){
+  const lvl = (v, w, e) => v == null ? '' : v >= e ? 'color:var(--err)' : v >= w ? 'color:var(--warn)' : 'color:var(--ok)';
+  const up = x.uptime == null ? '—' : x.uptime >= 86400 ? `${Math.floor(x.uptime/86400)} j ${Math.floor(x.uptime%86400/3600)} h` : `${Math.floor(x.uptime/3600)} h ${Math.floor(x.uptime%3600/60)} min`;
+  return `<span>CPU</span><span style="${lvl(x.cpu,70,90)}">${x.cpu ?? '—'} %${x.load!=null?` <small style="color:var(--muted)">(charge ${x.load})</small>`:''}</span>
+    <span>RAM</span><span style="${lvl(x.ram,75,90)}">${x.ram ?? '—'} %${x.ramTotalMb?` <small style="color:var(--muted)">(${x.ramUsedMb} / ${x.ramTotalMb} Mo)</small>`:''}</span>
+    ${x.tempC!=null?`<span>Température</span><span style="${lvl(x.tempC,65,78)}">${x.tempC} °C</span>`:''}
+    ${x.disk!=null?`<span>Disque</span><span style="${lvl(x.disk,80,92)}">${x.disk} %</span>`:''}
+    <span>Allumée depuis</span><span>${up}</span>`;
+}
+async function gwRestart(name, c){
+  const msg = c === 'btrestart' ? `Redémarrer le Bluetooth de la Gateway « ${name} » ?\n(après la mesure en cours, ~15 s)` : c === 'restart' ? `Redémarrer le service de la Gateway « ${name} » ?\n(mesures coupées ~10 s)` : `Redémarrer la machine Linux « ${name} » ?\n(hors ligne ~1 min)`;
+  if (!confirm(msg)) return;
+  gcmd(name, c);
+}
+async function saveMeasureSeconds(){
+  const v = parseInt($('#set-dur-all').value, 10);
+  if (!(v >= 5 && v <= 600)) return toast('error', 'Durée invalide', 'entre 5 et 600 secondes');
+  const res = await post('/api/settings/client', { measureSeconds: { all: v } });
+  if (res.error) toast('error', 'Réglage non enregistré', res.error); else toast('ok', 'Durée estimée enregistrée', `${v} s`);
+}
+async function saveClientSetting(key, value){
+  const res = await post('/api/settings/client', { [key]: value });
+  if (res.error) { toast('error', 'Réglage non enregistré', res.error); $('#set-gwtype').checked = !value; }
+  else toast('ok', 'Client RHM', value ? 'Type de Gateway affiché pour tous les comptes' : 'Type de Gateway masqué pour tous les comptes');
+}
+async function delGateway(name){
+  if (!confirm(`Supprimer la Gateway RHM « ${name} » de la liste ?\n(l'historique des mesures est conservé ; si elle se reconnecte, elle réapparaîtra)`)) return;
+  const r = await fetch(`/api/gateway/${encodeURIComponent(name)}`, { method:'DELETE' });
+  if (r.status === 401) return location.href = '/login';
+  const res = await r.json();
+  if (res.error) return toast('error', 'Suppression refusée', res.error);
+  delete S.gateways[name]; renderGateways(true); renderRings(); toast('info', 'Gateway supprimée', name);
+}
 async function forget(mac){ closeMenus(); if (!confirm('Retirer cette bague du tableau ? (son historique est conservé)')) return; await fetch(`/api/ring/${mac}`, { method:'DELETE' }); delete S.rings[mac]; renderRings(); }
 function toggleMenu(ev, mac){ ev.stopPropagation(); const id = 'm-' + mac.replace(/:/g,''); document.querySelectorAll('.dd').forEach(d => { if (d.id !== id) d.classList.remove('on') }); document.getElementById(id).classList.toggle('on'); }
 function closeMenus(){ document.querySelectorAll('.dd.on').forEach(d => d.classList.remove('on')); }
@@ -621,24 +759,165 @@ $('#measure-all-online').onclick = () => {
   list.forEach(r => { cmd(r.mac, 'hr'); setTimeout(() => cmd(r.mac, 'spo2'), 400); });
 };
 
+// ------------------------------------------------------------------ photo du résident
+function renderPhoto(mac){
+  const r = S.rings[mac] || {};
+  $('#d-photo').innerHTML = `${r.photoV ? `<img class="ph" src="/api/ring/${mac}/photo?v=${r.photoV}" alt="">` : '<div class="ph">👤</div>'}
+    <div style="flex:1"><div style="font-weight:800;font-size:13px;margin-bottom:4px">Photo du résident</div>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:8px">Affichée dans le Client RHM (mise à jour en direct)</div>
+      <div class="row"><label class="btn primary" style="cursor:pointer">📷 Choisir une photo
+        <input type="file" accept="image/*" style="display:none" onchange="uploadPhoto('${mac}', this)"></label>
+        ${r.photoV ? `<button class="btn danger" onclick="deletePhoto('${mac}')">Supprimer</button>` : ''}</div></div>`;
+}
+async function uploadPhoto(mac, input){
+  const f = input.files && input.files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('photo', f);
+  const res = await (await fetch(`/api/ring/${mac}/photo`, { method:'POST', body:fd })).json();
+  if (!res.ok) return toast('error', 'Photo refusée', res.error || '');
+  if (S.rings[mac]) S.rings[mac].photoV = res.photoV;
+  renderPhoto(mac); renderRings(); toast('ok', 'Photo enregistrée', 'Le Client RHM se met à jour');
+}
+async function deletePhoto(mac){
+  if (!confirm('Supprimer la photo du résident ?')) return;
+  const res = await (await fetch(`/api/ring/${mac}/photo`, { method:'DELETE' })).json();
+  if (!res.ok) return toast('error', 'Suppression impossible', res.error || '');
+  if (S.rings[mac]) S.rings[mac].photoV = null;
+  renderPhoto(mac); renderRings();
+}
+
+// ------------------------------------------------------------------ ajouter une bague
+async function openAddRing(){
+  $('#add-mac').value = ''; $('#add-name').value = ''; $('#add-err').textContent = '';
+  let opts = '<option value="">— plus tard —</option>';
+  try {
+    const z = await getJson('/api/zones');
+    if (z.ok) opts += z.zones.map(x => `<option value="${esc(x.gateway)}">${esc(x.zone ? x.zone + ' · ' + x.gateway : x.gateway)}${x.type==='linux'?' 🐧':x.type==='android'?' 📺':''}</option>`).join('');
+  } catch(e){}
+  $('#add-main').innerHTML = opts;
+  $('#addmodal').classList.add('on'); setTimeout(() => $('#add-mac').focus(), 50);
+}
+function closeAddRing(){ $('#addmodal').classList.remove('on'); }
+async function addRing(){
+  $('#add-err').textContent = ''; $('#add-go').disabled = true;
+  const res = await post('/api/rings', { mac:$('#add-mac').value.trim(), name:$('#add-name').value.trim(), main:$('#add-main').value });
+  $('#add-go').disabled = false;
+  if (!res.ok) { $('#add-err').textContent = res.error || 'Erreur'; return; }
+  closeAddRing();
+  toast('ok', res.created ? 'Bague ajoutée' : 'Bague déjà connue', `${res.name} · ${res.mac}`);
+  if (!S.rings[res.mac]) S.rings[res.mac] = { mac:res.mac, name:res.name, values:{}, pending:{}, errors:{} };
+  renderRings(); openDrawer(res.mac);
+}
+
+// ------------------------------------------------------------------ zones (V2)
+function zoneName(gw){ return (S.zones.names || {})[gw] || gw; }
+/** Sous la gateway, dans le tableau : « 🏠 Chambre 12 · +2 zones » */
+function zoneTag(mac){
+  const z = S.zones.enabled && (S.zones.rings || {})[mac]; if (!z || !z.main) return '';
+  const n = (z.secondary || []).length;
+  return `<span class="ztag" title="Principale : ${esc(zoneName(z.main))}${n ? ' · secondaires : ' + esc(z.secondary.map(zoneName).join(', ')) : ''}">🏠 ${esc(zoneName(z.main))}${n ? ` · +${n} zone${n>1?'s':''}` : ''}</span>`;
+}
+/** Gateway multi-bagues : bagues de ses zones, entendues ou non par l'écoute passive */
+function multiRings(g){
+  const pr = g.presence || {}, seen = pr.seen || {}, fresh = pr.ts && nowS() - pr.ts < 30;
+  const list = (g.rings || []).map(x => {
+    const r = S.rings[x.mac], s = seen[x.mac], b = g.busy && g.busy.mac === x.mac;
+    const st = b ? `<span style="color:var(--info)">mesure ${esc(g.busy.cmd || '')}…</span>`
+      : s && fresh ? `${s.rssi} dBm` : '<span style="color:var(--muted)">non entendue</span>';
+    return `<div style="display:flex;justify-content:space-between;gap:8px"><span>${x.role === 'main' ? '🏠' : '↔'} ${esc((r && r.name) || x.mac)}</span><span>${st}</span></div>`;
+  }).join('');
+  return `<span>Bagues (zones)</span><span>${(g.rings || []).length}${g.scanner ? ' · 📡 écoute' : ' · <span style="color:var(--warn)">écoute arrêtée</span>'}</span>
+    <span style="grid-column:1/-1;font-weight:500;text-align:left;font-size:12px;color:var(--text)">${list || '<span style="color:var(--muted)">Aucune bague : choisissez les zones dans la fiche de chaque bague</span>'}</span><span style="display:none"></span>`;
+}
+async function saveGwZone(name){
+  const zone = document.getElementById('zone-' + name).value.trim();
+  const res = await post(`/api/gateway/${encodeURIComponent(name)}/zone`, { zone });
+  if (!res.ok) return toast('error', 'Pièce non enregistrée', res.error || '');
+  toast('ok', `${name}`, zone ? `Pièce « ${zone} »` : 'Nom de pièce effacé');
+  if (document.activeElement) document.activeElement.blur();
+  renderGateways(true);
+}
+/** Éditeur des zones d'une bague (tiroir) : 1 principale + 0 à N secondaires */
+const ZED = { mac:null, choices:[], max:5, main:'', sec:[] };
+async function loadZonesEditor(mac){
+  const box = $('#d-zones');
+  let a, b;
+  try { [a, b] = await Promise.all([getJson('/api/zones'), getJson(`/api/ring/${mac}/zones`)]); }
+  catch(e){ box.style.display = 'none'; return; }
+  if (!a.ok || !b.ok || S.drawerMac !== mac) { box.style.display = 'none'; return; }
+  Object.assign(ZED, { mac, choices:a.zones, max:a.max_secondary || 5,
+    main:(b.zones.main || {}).gateway || '', sec:(b.zones.secondary || []).map(z => z.gateway) });
+  box.style.display = 'block'; renderZonesEditor();
+}
+function zoneOptions(sel, exclude){
+  return '<option value="">— choisir —</option>' + ZED.choices.filter(z => z.gateway === sel || !exclude.includes(z.gateway)).map(z =>
+    `<option value="${esc(z.gateway)}" ${z.gateway===sel?'selected':''}>${esc(z.zone ? z.zone + ' · ' + z.gateway : z.gateway)}${z.type==='linux'?' 🐧':z.type==='android'?' 📺':''}${z.online?'':' (hors ligne)'}</option>`).join('');
+}
+function renderZonesEditor(){
+  const used = [ZED.main, ...ZED.sec].filter(Boolean);
+  $('#d-zones').innerHTML = `<h4>🏠 Zones de la bague</h4>
+    <div class="zl">Zone principale (chambre du résident)</div>
+    <div class="zr"><select class="inp" onchange="ZED.main=this.value;renderZonesEditor()">${zoneOptions(ZED.main, used)}</select></div>
+    <div class="zl">Zones secondaires (${ZED.sec.length}/${ZED.max}) : salon, salle à manger…</div>
+    ${ZED.sec.map((g,i) => `<div class="zr"><select class="inp" onchange="ZED.sec[${i}]=this.value;renderZonesEditor()">${zoneOptions(g, used)}</select><button class="x2" title="Retirer" onclick="ZED.sec.splice(${i},1);renderZonesEditor()">✕</button></div>`).join('')}
+    <div class="row" style="margin-top:8px">
+      <button class="btn" onclick="ZED.sec.push('');renderZonesEditor()" ${ZED.sec.length >= ZED.max ? 'disabled' : ''}>＋ Zone secondaire</button>
+      <button class="btn primary" style="margin-left:auto" onclick="saveZones()" ${ZED.main ? '' : 'disabled'}>Enregistrer les zones</button>
+    </div>`;
+}
+async function saveZones(){
+  const res = await post(`/api/ring/${ZED.mac}/zones`, { main:ZED.main, secondary:ZED.sec.filter(Boolean) });
+  if (!res.ok) return toast('error', 'Zones non enregistrées', res.error || '');
+  ZED.sec = res.zones.secondary.map(z => z.gateway); renderZonesEditor();
+  toast('ok', 'Zones enregistrées', `Principale : ${res.zones.main.zone}` + (ZED.sec.length ? ` · ${ZED.sec.length} secondaire(s)` : ''));
+}
+
 // ------------------------------------------------------------------ détails d'une bague
-const DTYPES = ['hr','spo2','temp','bp','hrv','stress','all'];
+const DTYPES = ['hr','spo2','temp','hrv','stress','all','sleep'];
 async function openDrawer(mac){
   closeMenus(); S.drawerMac = mac; const r = S.rings[mac]; if (!r) return;
-  $('#d-av').textContent = initials(r); $('#d-title').textContent = r.name || 'Bague'; $('#d-mac').textContent = mac + (r.model ? ' · ' + r.model : '') + (r.firmware ? ' · fw ' + r.firmware : '');
+  $('#d-av').textContent = initials(r); $('#d-title').textContent = r.name || 'Bague'; $('#d-name').value = r.name || ''; $('#d-mac').textContent = mac + (r.model ? ' · ' + r.model : '') + (r.firmware ? ' · fw ' + r.firmware : '');
   $('#d-tiles').innerHTML = [
     ['Gateway', esc(r.deviceName || r.gateway || '—')], ['Batterie', r.battery != null ? r.battery + ' %' + (r.charging?' ⚡':'') : '—'], ['Port', r.worn === false ? '<span style="color:var(--warn)">Retirée</span>' : r.worn ? 'Portée' : '—'],
     ['IP LAN', `<span class="mono" style="font-size:14px">${esc(r.lanIp || '—')}</span>`], ['IP WAN', `<span class="mono" style="font-size:14px">${esc(r.wanIp || '—')}</span>`], ['Langue', esc(r.lang || '—')]
   ].map(([l,v]) => `<div class="tile"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
   $('#d-types').innerHTML = DTYPES.map(t => `<button class="chip ${t===S.dtype?'on':''}" onclick="S.dtype='${t}';loadHistory()">${LABELS[t]}</button>`).join('');
   $('#drawer').classList.add('on'); $('#scrim').classList.add('on');
+  renderPhoto(mac);
+  $('#d-zones').style.display = 'none'; if (S.zones.enabled) loadZonesEditor(mac);
   loadHistory();
+}
+/** Renommer la bague pour tous les comptes (enregistré en base) */
+async function renameRing(){
+  const mac = S.drawerMac, name = $('#d-name').value.trim(); if (!mac || !name) return;
+  const res = await post(`/api/ring/${mac}/name`, { name });
+  if (!res.ok) { toast('error', 'Nom non enregistré', res.error || ''); return; }
+  if (S.rings[mac]) { S.rings[mac].name = res.name; S.rings[mac].dbName = res.name; }
+  $('#d-title').textContent = res.name; renderRings();
+  toast('ok', 'Bague renommée', res.name);
 }
 function closeDrawer(){ S.drawerMac = null; $('#drawer').classList.remove('on'); $('#scrim').classList.remove('on'); }
 $('#d-close').onclick = closeDrawer; $('#scrim').onclick = closeDrawer;
+/** Sommeil : une ligne par nuit (30 derniers jours), courbe de la durée totale en heures */
+async function loadSleep(mac){
+  const res = await (await fetch(`/api/ring/${mac}/sleep?days=30`)).json();
+  const nights = res.nights || [];
+  const hm = m => `${Math.floor(m/60)} h ${String(m%60).padStart(2,'0')}`;
+  const pts = nights.slice().reverse().map(n => [Date.parse(n.date)/1000, +(n.total/60).toFixed(2)]);
+  drawChart(pts, '#8fa8ff');
+  if (nights.length) {
+    const avg = Math.round(nights.reduce((a,n) => a + n.total, 0) / nights.length);
+    $('#d-stats').textContent = `${nights.length} nuits · moyenne ${hm(avg)} par nuit (heures sur la courbe)`;
+  } else { $('#d-stats').textContent = res.error || ''; }
+  const t = ts => ts ? new Date(ts*1000).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
+  $('#d-rows').innerHTML = nights.map(n => `<tr><td>${new Date(n.date).toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'2-digit'})}</td>
+      <td><b>${hm(n.total)}</b> <span style="color:var(--muted);font-size:11.5px">profond ${hm(n.deep)} · léger ${hm(n.light)} · paradoxal ${hm(n.rem)} · éveillé ${hm(n.awake)}</span></td>
+      <td>${t(n.start)} → ${t(n.end)}</td><td></td></tr>`).join('')
+    || '<tr><td colspan="4" style="color:var(--muted)">Aucune nuit enregistrée (la GATEWAY RHM synchronise le sommeil chaque matin).</td></tr>';
+}
 async function loadHistory(){
   const mac = S.drawerMac; if (!mac) return;
   document.querySelectorAll('#d-types .chip').forEach((c,i) => c.classList.toggle('on', DTYPES[i] === S.dtype));
+  if (S.dtype === 'sleep') return loadSleep(mac);
   const rows = await (await fetch(`/api/ring/${mac}/history?type=${S.dtype}&limit=300`)).json();
   const key = S.dtype === 'bp' ? 'sbp' : S.dtype === 'all' ? 'hr' : 'value';
   const pts = rows.filter(x => x.status === 'ok' && x.data[key] != null).map(x => [x.ts, Number(x.data[key])]).reverse();
@@ -682,7 +961,9 @@ function connectStream(){
     const { kind, data } = JSON.parse(m.data);
     if (kind === 'ring') { S.rings[data.mac] = data; renderRings(data.mac); if (S.drawerMac === data.mac) loadHistory(); }
     else if (kind === 'gateway') { S.gateways[data.name] = data; renderGateways(); renderRings(); }
+    else if (kind === 'gateway_removed') { delete S.gateways[data.name]; renderGateways(true); renderRings(); }
     else if (kind === 'ring_removed_from_list') { delete S.rings[data.mac]; renderRings(); }
+    else if (kind === 'zones') { S.zones = data; renderRings(); renderGateways(); }
     else if (kind === 'broker') setBroker(data.online);
     else if (kind === 'db') setDb(data);
     else if (kind === 'event') {
@@ -698,6 +979,9 @@ async function init(){
   const r = await fetch('/api/state'); if (r.status === 401) return location.href = '/login';
   const s = await r.json();
   S.offset = s.now - Math.floor(Date.now()/1000);
+  if (s.clientSettings) $('#set-gwtype').checked = !!s.clientSettings.showGatewayType;
+  if (s.clientSettings && s.clientSettings.measureSeconds) $('#set-dur-all').value = s.clientSettings.measureSeconds.all;
+  if (s.zones) S.zones = s.zones;
   s.rings.forEach(x => S.rings[x.mac] = x); s.gateways.forEach(g => S.gateways[g.name] = g); S.events = s.events;
   S.measureKeys = s.measureKeys || [];
   setBroker(s.broker); setDb(s.db); renderRings(); renderGateways(); renderFeed(); connectStream();
@@ -708,7 +992,7 @@ async function init(){
 // ------------------------------------------------------------------ vues
 const VIEWS = {
   rings:['Bagues','Une ligne par bague · mise à jour en direct'],
-  gateways:['Gateways','TV et téléphones connectés au broker'],
+  gateways:['Gateways','Gateway RHM connectées au broker'],
   journal:['Journal','Événements en temps réel'],
   pairing:['Appariements QR','Demandes créées par le scan du QR code · approuver ou refuser'],
   tgusers:['Utilisateurs Telegram','Comptes du bot DANY, bagues affectées et Web App'],
