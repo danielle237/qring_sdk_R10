@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Esquisse GAT_ANDROID et Client</title>
+<style>
+:root{--bg:#0a1220;--card:#111c2f;--line:#233553;--tx:#e6edf7;--mut:#8da0bd;--blue:#38bdf8;--green:#34d399;--orange:#fbbf24;--red:#f87171}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,sans-serif;padding:20px 16px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:0 0 10px;color:var(--blue)}.sub{color:var(--mut);margin-bottom:18px}
+.wrap{display:flex;flex-wrap:wrap;gap:24px;justify-content:center}
+.col{width:340px}.phone{background:#050a14;border:2px solid var(--line);border-radius:28px;padding:14px;min-height:640px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}.mut{color:var(--mut);font-size:12px}
+.chip{border-radius:99px;padding:2px 9px;font-size:11px;border:1px solid var(--line)}
+.g{color:var(--green);border-color:var(--green)}.o{color:var(--orange);border-color:var(--orange)}.r{color:var(--red);border-color:var(--red)}.b{color:var(--blue);border-color:var(--blue)}
+.btn{display:block;text-align:center;background:var(--blue);color:#04202e;font-weight:700;border-radius:10px;padding:9px;margin-top:8px}
+.btn.off{background:#223;color:var(--mut)}
+.bar{height:6px;background:#1c2a44;border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--green)}
+.flow{max-width:760px;margin:26px auto 0}svg{width:100%;height:auto;display:block}
+.note{max-width:760px;margin:16px auto 0;color:var(--mut);font-size:13px}
+</style></head><body>
+<h1>Esquisse : GAT_ANDROID et nouveau client Flutter</h1>
+<div class="sub">Maquette de discussion selon le CDC V0.1. Aucun code n'est écrit, les valeurs affichées sont des exemples.</div>
+
+<div class="wrap">
+<div class="col"><h2>1. GAT_ANDROID (gateway)</h2><div class="phone">
+ <div class="row"><b>GAT_ANDROID</b><span class="chip g">MQTT connecté</span></div>
+ <div class="mut" style="margin:4px 0 10px">GW_ANDROID_salon · Zone : Salon · Broker 51.83.40.138</div>
+ <div class="card"><div class="row"><b>Scan passif (advertising)</b><span class="chip g">actif</span></div>
+  <div class="mut">Aucune connexion GATT. Présence publiée toutes les ~5 s.</div></div>
+ <div class="card"><b>Bagues vues</b>
+  <div class="row" style="margin-top:6px"><span>R10_6401</span><span class="chip g">-63 dBm · 4 s</span></div>
+  <div class="row" style="margin-top:6px"><span>R10_7A12</span><span class="chip o">-84 dBm · 38 s</span></div></div>
+ <div class="card"><b>Ordres du broker</b>
+  <div class="row" style="margin-top:6px"><span class="mut">Dernier scan demandé</span><span>#a41 · reachable</span></div>
+  <div class="row"><span class="mut">Verrou GATT</span><span class="chip g">libre</span></div>
+  <div class="row"><span class="mut">Mesure</span><span class="chip b">idle</span></div></div>
+ <div class="card"><b>Journal</b>
+  <div class="mut">14:45:14 scan a41 → vue (-63)<br>14:44:50 mesure a39 → done<br>14:44:21 heartbeat</div></div>
+ <div class="row"><span class="btn off" style="flex:1;margin:0">Réglages</span><span class="btn" style="flex:1;margin:0">Démarrer / Arrêter</span></div>
+</div></div>
+
+<div class="col"><h2>2. Client Flutter (carte)</h2><div class="phone">
+ <div class="row"><b>Mes résidents</b><span class="chip b">Site EIS RHM</span></div>
+ <div class="card" style="margin-top:10px"><div class="row"><b>Mme Martin · R10_6401</b><span class="chip g">Détectée</span></div>
+  <svg viewBox="0 0 300 170" style="margin-top:8px;border-radius:10px;background:#0c1a2e">
+   <rect x="2" y="2" width="296" height="166" rx="10" fill="none" stroke="#233553"/>
+   <text x="14" y="30" fill="#2a4064" font-size="20" font-weight="700">CHAMBRE</text>
+   <text x="105" y="95" fill="#2a4064" font-size="16" font-weight="700">COULOIR</text>
+   <text x="190" y="152" fill="#2a4064" font-size="20" font-weight="700">SALON</text>
+   <circle cx="70" cy="60" r="7" fill="#0c1a2e" stroke="#8da0bd" stroke-width="2"/><text x="40" y="82" fill="#8da0bd" font-size="9">G1 chambre</text>
+   <circle cx="235" cy="115" r="7" fill="#0c1a2e" stroke="#38bdf8" stroke-width="2"/><text x="205" y="137" fill="#38bdf8" font-size="9">G3 salon</text>
+   <circle cx="222" cy="108" r="22" fill="none" stroke="#fbbf24" stroke-dasharray="3 3"/>
+   <circle cx="222" cy="108" r="6" fill="#34d399"/>
+  </svg>
+  <div class="row" style="margin-top:6px"><span>Zone probable : <b>Salon</b></span><span class="mut">il y a 4 s</span></div>
+  <div class="mut">Gateway : G3 · -63 dBm · cercle pointillé = incertitude</div>
+  <div class="btn">MESURER</div></div>
+ <div class="card"><div class="row"><b>Mesure en cours</b><span class="chip b">G3 verrouillée</span></div>
+  <div class="bar" style="margin:8px 0"><i style="width:62%"></i></div>
+  <div class="mut">Connexion ✓ · Fréquence cardiaque … · SpO2 en attente<br>Même mesure partagée avec 1 autre compte</div></div>
+ <div class="card"><div class="row"><b>Si aucune gateway ne la voit</b><span class="chip r">Signal perdu</span></div>
+  <div class="mut">Zone actuelle inconnue · dernière détection : Salon, il y a 3 min. Batterie : ne pas conclure « déchargée ».</div></div>
+</div></div>
+</div>
+
+<div class="flow"><h2 style="text-align:center;margin-top:24px">3. Flux de données</h2>
+<svg viewBox="0 0 760 150">
+ <g fill="#111c2f" stroke="#233553"><rect x="10" y="40" width="190" height="70" rx="10"/><rect x="285" y="40" width="190" height="70" rx="10"/><rect x="560" y="40" width="190" height="70" rx="10"/></g>
+ <g fill="#e6edf7" font-size="13" text-anchor="middle"><text x="105" y="68" font-weight="700">Gateways</text><text x="380" y="68" font-weight="700">Broker / serveur EIS</text><text x="655" y="68" font-weight="700">Client Flutter</text></g>
+ <g fill="#8da0bd" font-size="11" text-anchor="middle"><text x="105" y="88">Pi3, Pi400, GAT_ANDROID</text><text x="380" y="88">état, ronde, verrou, cache</text><text x="655" y="88">lit l'état, lance MESURER</text></g>
+ <g stroke="#38bdf8" stroke-width="2" fill="none"><path d="M200 65h85"/><path d="M475 65h85"/></g>
+ <g stroke="#34d399" stroke-width="2" fill="none"><path d="M285 90h-85"/><path d="M560 90h-85"/></g>
+ <g font-size="10" text-anchor="middle"><text x="242" y="55" fill="#38bdf8">présence, RSSI</text><text x="242" y="108" fill="#34d399">scan / mesure</text><text x="517" y="55" fill="#38bdf8">zone, état</text><text x="517" y="108" fill="#34d399">demande mesure</text></g>
+</svg></div>
+<div class="note">Points à valider : la zone est une estimation (jamais présentée comme une position exacte) ; l'Android TV rejoint l'arbitrage comme les autres gateways ; le client n'a plus de bouton « localiser », il lit l'état déjà calculé.</div>
+</body></html>

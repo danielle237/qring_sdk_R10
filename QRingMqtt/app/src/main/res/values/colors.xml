@@ -2,4 +2,5 @@
 <resources>
     <color name="bg">#FF0F1320</color>
     <color name="accent">#FF6C8CFF</color>
+    <color name="rhm_icon_bg">#FFFFFFFF</color>
 </resources>

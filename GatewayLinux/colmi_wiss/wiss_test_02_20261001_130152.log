@@ -1,0 +1,79 @@
+13:01:52.545 | ======================================================================
+13:01:52.546 | WISS / COLMI SIMPLE - TEST 02
+13:01:52.547 | TARGET : COLMI R10_6401 | 30:32:42:32:64:01
+13:01:52.547 | LOG    : /root/colmi_wiss/wiss_test_02_20261001_130152.log
+13:01:52.547 | INFO -> reset BT -> HR -> reset BT -> SpO2 -> reset BT
+13:01:52.548 | RAW BLE : fichier log uniquement
+13:01:52.548 | ======================================================================
+13:01:52.548 | 
+=== 1. INFO + BATTERY ===
+13:01:52.548 | INFO | CONNECT START | 30:32:42:32:64:01
+13:01:56.590 | INFO | CONNECT OK | 3.889s
+13:01:56.823 | INFO | HW=RT03CR_V1.0
+13:01:56.824 | INFO | FW=RT03CR_1.00.01_250104
+13:01:56.969 | INFO | TX BATTERY | 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03
+13:01:57.136 | INFO | RX RAW | 03 35 00 00 00 00 00 00 00 00 00 00 00 00 00 38
+13:01:57.136 | INFO | BATTERY=53% | CHARGING=False
+13:01:57.137 | INFO | READ TIME=0.546s
+13:01:57.137 | INFO | DISCONNECT START
+13:02:01.042 | INFO | CONNECTED=False | disconnect=3.905s
+13:02:01.043 | BT RESTART | fin INFO
+13:02:01.473 | BT RESTART | rc=0 | 0.428s
+13:02:03.476 | 
+=== HEART_RATE ===
+13:02:03.477 | HEART_RATE | CONNECT START | 30:32:42:32:64:01
+13:02:03.479 | HEART_RATE | ERROR | BleakBluetoothNotAvailableError: ('No powered Bluetooth adapters found. Turn on Bluetooth and try again.', <BleakBluetoothNotAvailableReason.POWERED_OFF: 3>)
+13:02:03.480 | BT RESTART | fin HEART_RATE
+13:02:03.752 | BT RESTART | rc=0 | 0.271s
+13:02:05.755 | 
+=== SPO2 ===
+13:02:05.755 | SPO2 | CONNECT START | 30:32:42:32:64:01
+13:02:08.996 | SPO2 | CONNECT OK | 3.241s
+13:02:09.644 | SPO2 | TX START | 69 03 01 00 00 00 00 00 00 00 00 00 00 00 00 6D
+13:02:09.644 | SPO2 | START
+13:02:09.744 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:09.744 | SPO2 | DECODE | error=0 value=0
+13:02:10.223 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:10.224 | SPO2 | DECODE | error=0 value=0
+13:02:10.760 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:10.760 | SPO2 | DECODE | error=0 value=0
+13:02:11.198 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:11.199 | SPO2 | DECODE | error=0 value=0
+13:02:11.686 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:11.687 | SPO2 | DECODE | error=0 value=0
+13:02:12.222 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:12.223 | SPO2 | DECODE | error=0 value=0
+13:02:12.710 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:12.710 | SPO2 | DECODE | error=0 value=0
+13:02:13.197 | SPO2 | RX RAW | 69 03 01 00 00 00 00 00 00 00 00 00 00 00 00 6D
+13:02:13.198 | SPO2 | DECODE | error=1 value=0
+13:02:13.198 | SPO2 | MEASUREMENT ERROR | code=1
+13:02:13.199 | SPO2 | TX STOP | 6A 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6D
+13:02:13.201 | SPO2 | RX RAW | 69 03 00 00 00 00 00 00 00 00 00 00 00 00 00 6C
+13:02:13.202 | SPO2 | DECODE | error=0 value=0
+13:02:13.203 | SPO2 | STOP SENT
+13:02:14.205 | SPO2 | SAMPLES=[]
+13:02:14.207 | SPO2 | TIMES | connect=3.241 s | first=N/A | samples=N/A | measure=3.554 s
+13:02:14.207 | FR : La bague est-elle portée au doigt ?
+13:02:14.208 | EN : Is the ring being worn on a finger?
+13:02:14.209 | SPO2 | DISCONNECT START
+13:02:16.027 | SPO2 | CONNECTED=False | disconnect=1.818s
+13:02:16.028 | BT RESTART | fin SPO2
+13:02:16.442 | BT RESTART | rc=0 | 0.413s
+13:02:18.446 | 
+=== RESULTAT FINAL / FINAL RESULT ===
+13:02:18.446 | HW       : RT03CR_V1.0
+13:02:18.447 | FW       : RT03CR_1.00.01_250104
+13:02:18.447 | BATTERY  : 53%
+13:02:18.447 | CHARGING : False
+13:02:18.447 | 
+13:02:18.447 | HR       : [] | error=None
+13:02:18.448 | SpO2     : [] | error=1
+13:02:18.448 | 
+13:02:18.448 | --- TEMPS / TIMINGS ---
+13:02:18.448 | INFO  | connect=3.889 s | read=0.546 s | cycle complet=10.928 s
+13:02:18.448 | HR    | connect=N/A | 1ere valeur=N/A | 6 samples=N/A | mesure=N/A | cycle complet=2.279 s
+13:02:18.448 | SpO2  | connect=3.241 s | 1ere valeur=N/A | 6 samples=N/A | mesure=3.554 s | cycle complet=12.691 s
+13:02:18.449 | TOTAL PROGRAMME : 25.901 s
+13:02:18.449 | LOG FILE        : /root/colmi_wiss/wiss_test_02_20261001_130152.log
+13:02:18.561 | MQTT | OK | /test_wiss2/R10_6401/result | {"time": "2026-10-01T13:02:18+01:00", "device": "COLMI R10_6401", "mac": "30:32:42:32:64:01", "status": "MEASUREMENT_ERROR", "battery": 53, "charging": false, "hr": [], "hr_error": null, "spo2": [], "spo2_error": 1, "program_s": 25.901}

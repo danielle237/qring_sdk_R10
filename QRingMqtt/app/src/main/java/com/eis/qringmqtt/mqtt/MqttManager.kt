@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.provider.Settings
 import android.util.Log
+import com.eis.qringmqtt.ble.Diag
 import com.eis.qringmqtt.data.AppState
 import com.eis.qringmqtt.data.BrokerConn
 import com.eis.qringmqtt.data.LogEntry
@@ -45,6 +46,8 @@ class MqttManager(
     private var retryJob: Job? = null
     private var retryCount = 0
     private var stopped = false
+    /** Connexion en cours : évite deux connect() en parallèle (retour réseau + nouvel essai). */
+    @Volatile private var connecting = false
 
     /** Base des topics utilisée par la connexion actuelle (le Last Will en dépend). */
     private var connectedBase: String? = null
@@ -114,6 +117,7 @@ class MqttManager(
             try { client?.close() } catch (_: Exception) {}
             client = null
             retryCount = 0
+            connecting = false
             connect()
         }
     }
@@ -121,6 +125,8 @@ class MqttManager(
     private fun connect() {
         if (stopped) return
         if (client?.isConnected == true) return
+        if (connecting) return
+        connecting = true
         retryJob?.cancel()
         val p = AppState.prefs
         val base = baseTopic()
@@ -135,16 +141,19 @@ class MqttManager(
                 isAutomaticReconnect = false    // on gère la reconnexion nous-mêmes
                 keepAliveInterval = 30
                 connectionTimeout = 15
+                maxInflight = 100               // rafales (sommeil, ALL) : pas de « too many publishes »
                 userName = p.user
                 password = p.password.toCharArray()
                 setWill("$base/status", statusPayload(false).toString().toByteArray(), 1, true)
             }
             c.connect(opts, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) {
+                    connecting = false
                     scope.launch { onConnectedInternal(base, gw) }
                 }
 
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                    connecting = false
                     Log.w(tag, "connexion échouée", exception)
                     scope.launch {
                         AppState.log(LogEntry.Kind.ERROR, "broker", "Connexion impossible : ${exception?.message ?: "?"}")
@@ -153,6 +162,7 @@ class MqttManager(
                 }
             })
         } catch (e: Exception) {
+            connecting = false
             Log.e(tag, "connect", e)
             scheduleRetry()
         }
@@ -166,7 +176,11 @@ class MqttManager(
         AppState.log(LogEntry.Kind.INFO, "broker", "OK ${AppState.prefs.host} · $gw")
         try {
             client?.subscribe("$gw/cmd", 1)
-            if (base != gw) client?.subscribe("$base/cmd", 1)
+            if (base != gw) {
+                client?.subscribe("$base/cmd", 1)
+                // Nom donné dans l'admin (message retenu) : arrive tout de suite après l'abonnement
+                client?.subscribe("$base/profile", 1)
+            }
         } catch (e: Exception) {
             Log.e(tag, "subscribe", e)
         }
@@ -190,6 +204,8 @@ class MqttManager(
         override fun connectComplete(reconnect: Boolean, serverURI: String?) {}
 
         override fun connectionLost(cause: Throwable?) {
+            Diag.mqttReconnects++
+            Diag.error("MQTT : ${cause?.message ?: "connexion perdue"}")
             scope.launch {
                 AppState.log(LogEntry.Kind.ERROR, "broker", "Connexion perdue : ${cause?.message ?: "?"}")
                 scheduleRetry()
@@ -200,6 +216,10 @@ class MqttManager(
             val payload = message?.payload?.let { String(it, Charsets.UTF_8) } ?: return
             scope.launch {
                 AppState.log(LogEntry.Kind.IN, topic ?: "", payload)
+                if (topic != null && topic.endsWith("/profile")) {
+                    onProfile(payload)
+                    return@launch
+                }
                 val gw = connectedGateway
                 onCommand(payload, gw != null && topic != null && topic.startsWith("$gw/"))
             }
@@ -255,11 +275,30 @@ class MqttManager(
         if (gw != base) publishRaw("$gw/status", payload, retained = true, queueIfOffline = false)
     }
 
+    /** Compteurs de stabilité → eis/colmi/gateway/<TV>/diag (non retenu, non mis en file hors ligne). */
+    fun publishDiag() {
+        val gw = connectedGateway ?: gatewayBase()
+        publishRaw("$gw/diag", Diag.toJson().put("gateway", AppState.prefs.gatewayName).toString(),
+            retained = false, queueIfOffline = false)
+    }
+
+    /** Profil de la bague envoyé par l'admin : {"name":"Mme Martin"} (vide = pas de nom). */
+    private fun onProfile(payload: String) {
+        val name = try { JSONObject(payload).optString("name", "").trim() } catch (_: Exception) { "" }
+        // Lecture du RSSI décidée dans l'admin (absent = oui)
+        com.eis.qringmqtt.ble.RssiReader.enabled =
+            try { JSONObject(payload).optBoolean("rssi", true) } catch (_: Exception) { true }
+        if (!com.eis.qringmqtt.ble.RssiReader.enabled) com.eis.qringmqtt.ble.RssiReader.rssi.value = null
+        AppState.prefs.ringLabel = name
+        AppState.ringLabel.value = name
+    }
+
     /** Publie un message « hors ligne » sur l'ancien topic d'une bague (dissociée ou remplacée). */
     fun publishRingOffline(oldMac: String, reason: String) {
         val topic = "${AppState.prefs.topicPrefix}/${macForTopic(oldMac)}/status"
         val o = statusPayload(false).put("ring", "unbound").put("reason", reason)
-            .put("ringMac", oldMac)
+            .put("ringMac", oldMac).put("unboundAt", System.currentTimeMillis() / 1000)
+            .put("boundAt", JSONObject.NULL).put("removedAt", JSONObject.NULL)
         publishRaw(topic, o.toString(), retained = true, queueIfOffline = true)
     }
 

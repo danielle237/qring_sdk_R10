@@ -25,6 +25,29 @@ BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = Path(os.getenv("DANY_ENV_FILE") or os.getenv("QRING_ENV_FILE") or (BASE_DIR / ".env"))
 load_dotenv(ENV_FILE)
 
+# ---------------------------------------------------------------------------- lecture tolérante du .env
+# « 60, » ou « 60 # commentaire » dans le .env ne doivent pas empêcher le démarrage.
+def _env_number(name, default, cast, pattern):
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return cast(default)
+    m = re.search(pattern, raw)
+    if m:
+        if m.group(0) != raw.strip():
+            logging.getLogger("env").warning("%s=%r dans le .env : valeur lue %s", name, raw, m.group(0))
+        return cast(m.group(0))
+    logging.getLogger("env").warning("%s=%r invalide dans le .env : valeur par défaut %s", name, raw, default)
+    return cast(default)
+
+
+def env_int(name, default):
+    return _env_number(name, default, int, r"-?\d+")
+
+
+def env_float(name, default):
+    return _env_number(name, default, float, r"-?\d+(?:\.\d+)?")
+
+
 import psycopg
 from psycopg.rows import dict_row
 import paho.mqtt.client as mqtt
@@ -42,40 +65,35 @@ from telegram.ext import (
 # ---------------- Configuration .env ----------------
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_PRIVATE_ONLY = os.getenv("TELEGRAM_PRIVATE_ONLY", "1").lower() not in (
+TELEGRAM_PRIVATE_ONLY = os.getenv("TELEGRAM_PRIVATE_ONLY", "1").strip().strip(",;").strip().lower() not in (
     "0", "false", "no", "off"
 )
 LIVE_REFRESH_SECONDS = max(
-    1.0, float(os.getenv("TELEGRAM_LIVE_REFRESH_SECONDS", "2"))
+    1.0, env_float("TELEGRAM_LIVE_REFRESH_SECONDS", "2")
 )
 
 RING_OVERVIEW_REFRESH_SECONDS = max(
     1.0,
-    float(
-        os.getenv(
-            "TELEGRAM_RING_OVERVIEW_REFRESH_SECONDS",
-            "2",
-        )
-    ),
+    env_float("TELEGRAM_RING_OVERVIEW_REFRESH_SECONDS", "2"),
 )
 
 LIVE_SESSION_MINUTES = max(
-    1, int(os.getenv("TELEGRAM_LIVE_SESSION_MINUTES", "30"))
+    1, env_int("TELEGRAM_LIVE_SESSION_MINUTES", "30")
 )
 
 LIVE_WARNING_MINUTES = max(
-    1, int(os.getenv("TELEGRAM_LIVE_WARNING_MINUTES", "5"))
+    1, env_int("TELEGRAM_LIVE_WARNING_MINUTES", "5")
 )
 
 # Si plusieurs mesures physiologiques échouent avec
 # reason=measurement_failed dans la même fenêtre, la bague est considérée
 # ONLINE mais NON PORTÉE.
 WEAR_FAILURE_THRESHOLD = max(
-    2, int(os.getenv("TELEGRAM_WEAR_FAILURE_THRESHOLD", "2"))
+    2, env_int("TELEGRAM_WEAR_FAILURE_THRESHOLD", "2")
 )
 
 WEAR_FAILURE_WINDOW_SECONDS = max(
-    30, int(os.getenv("TELEGRAM_WEAR_FAILURE_WINDOW_SECONDS", "180"))
+    30, env_int("TELEGRAM_WEAR_FAILURE_WINDOW_SECONDS", "180")
 )
 
 PHYSIO_METRICS = (
@@ -107,7 +125,7 @@ TELEGRAM_ADMIN_IDS = _parse_int_set(
 # Permissions accordées lorsqu'un administrateur accepte une demande QR.
 PAIRING_DEFAULT_ALERTS = os.getenv(
     "PAIRING_DEFAULT_ALERTS", "0"
-).strip().lower() in ("1", "true", "yes", "on")
+).strip().strip(",;").strip().lower() in ("1", "true", "yes", "on")
 
 # URL HTTPS publique du Flask DANY.
 # Exemple : https://dany.embedded-systems.biz
@@ -117,14 +135,14 @@ TELEGRAM_WEBAPP_BASE_URL = os.getenv(
 ).strip().rstrip("/")
 
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-DB_PORT = int(os.getenv("DB_PORT", "5432"))
+DB_PORT = env_int("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "smart_ring")
 DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", "5"))
+DB_CONNECT_TIMEOUT = env_int("DB_CONNECT_TIMEOUT", "5")
 
 MQTT_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_PORT = env_int("MQTT_PORT", "1883")
 MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 MQTT_TOPIC = os.getenv("MQTT_TOPIC", "eis/colmi/#")
@@ -3021,7 +3039,7 @@ def format_metric_history(
 # construit l'état de chaque bague et publie lui-même les commandes
 # sur eis/colmi/<MAC>/cmd. QRing Admin peut être arrêté.
 # La base est seulement LUE (droits, historique) : c'est QRing Admin
-# qui y écrit les mesures.
+# qui y écrit les mesures. 
 # Règle : une seule mesure à la fois par bague. Même mesure déjà en
 # cours = résultat partagé ; autre mesure = refus « en cours ».
 # Les commandes publiées par QRing Admin sont vues aussi (topic cmd),
@@ -3055,14 +3073,14 @@ MEASURE_EDIT_EVERY_SECONDS = 3.0
 # La bague n'est déclarée PORTÉE que si une vraie valeur arrive (preuve).
 # Sans valeur après ce délai : « pas de signal — mal placée ou retirée ? »
 # en attendant la réponse définitive de la TV.
-WEAR_CHECK_SECONDS = max(5, int(os.getenv("TELEGRAM_WEAR_CHECK_SECONDS", "20")))
+WEAR_CHECK_SECONDS = max(5, env_int("TELEGRAM_WEAR_CHECK_SECONDS", "15"))
 # Écran d'une bague mis à jour tout seul quand son état change, pendant ce délai
-RING_WATCH_MINUTES = max(1, int(os.getenv("TELEGRAM_RING_WATCH_MINUTES", "30")))
+RING_WATCH_MINUTES = max(1, env_int("TELEGRAM_RING_WATCH_MINUTES", "30"))
 RING_WATCH_MIN_EDIT_SECONDS = 3.0
 # Une vérification réussie est réutilisée pendant ce délai (économise la batterie)
-WEAR_REUSE_SECONDS = max(0, int(os.getenv("TELEGRAM_WEAR_REUSE_SECONDS", "120")))
+WEAR_REUSE_SECONDS = max(0, env_int("TELEGRAM_WEAR_REUSE_SECONDS", "120"))
 # Sans statut de la TV depuis ce délai => TV hors ligne
-GATEWAY_OFFLINE_AFTER = max(60, int(os.getenv("QRING_OFFLINE_AFTER", "150")))
+GATEWAY_OFFLINE_AFTER = max(60, env_int("QRING_OFFLINE_AFTER", "150"))
 # Une demande sans résultat est oubliée après ce délai
 PENDING_FORGET_SECONDS = 150
 
@@ -3237,7 +3255,8 @@ def handle_android_message(mac12, sub, p):
             return
 
         pnd = r["pending"].pop(sub, None) or {}
-        started = pnd.get("since") if pnd.get("confirmed") else None
+        # Début : « mesure en cours » confirmé par la TV, sinon l'envoi de la commande
+        started = pnd.get("since") or pnd.get("requested")
         meta = {
             "reqId": p.get("reqId") or pnd.get("reqId"),
             "started": started,
@@ -3268,6 +3287,14 @@ def handle_android_message(mac12, sub, p):
             if err == "ring_removed":
                 r["worn"] = False
                 r["wornCheckedTs"] = None
+
+
+def mark_worn_verified(mac):
+    with android_lock:
+        r = android_rings.get(mac_upper(mac))
+        if r:
+            r["worn"] = True
+            r["wornCheckedTs"] = int(time.time())
 
 
 def forget_stale_pending():
@@ -3542,19 +3569,22 @@ def format_ring_screen(access, ring, db_row=None, checking=False, latest=None, s
 
     vals = merged_latest(ring, latest)
     keys = visible_measures(access)
+    status_ts2 = (ring or {}).get("statusTs")
 
     lines.append("")
-    lines.append("📊 <b>Dernières mesures · Latest readings</b>")
+    lines.append(f"📊 <b>latest health measurements recorded {hhmm(status_ts2, True)}</b>\n")
     shown = 0
     for key in keys:
         v = vals.get(key)
+        #print(keys)
         if not v or key == exclude:
             continue
         shown += 1
         dur = v.get("dur")
+        #lines.append("")
         lines.append(
-            f"{SCREEN_ICONS[key]} <b>{fmt_fr(v['data']['value'])} {SCREEN_UNITS[key]}</b>"
-            f" · {when_label(v.get('ts'))}" + (f" · ⏱ {dur} s" if dur is not None else "")
+            f"{SCREEN_ICONS[key]} {key.upper()}  : <b>{fmt_fr(v['data']['value'])} {SCREEN_UNITS[key]}</b>"
+            f" · {when_label(v.get('ts'))} · ⏱ {f'{dur} s' if dur is not None else '—'}"
         )
     if not shown:
         lines.append("<i>Aucune autre mesure · No other readings</i>" if exclude else "<i>Aucune mesure · No readings yet</i>")
@@ -3570,8 +3600,8 @@ def format_ring_screen(access, ring, db_row=None, checking=False, latest=None, s
 
     status_ts = (ring or {}).get("statusTs")
     if status_ts:
-        lines.append("")
-        lines.append(f"🕒 Statut TV · TV status {hhmm(status_ts, True)}")
+        lines.append("\n")
+        #lines.append(f"🕒 Statut TV · TV status {hhmm(status_ts, True)}")
 
     return "\n".join(lines)
 
@@ -3706,41 +3736,59 @@ def format_measure_block(tr, phase, elapsed=None, result=None):
 
 
 def format_wear_block(tr, phase, elapsed=None, result=None):
+    """
+    État / Status : une mesure sert de test de port.
+    Pas de problème pendant WEAR_CHECK_SECONDS => « portée », même si la mesure continue
+    (elle s'affiche en dessous jusqu'au résultat). Si la TV signale ensuite « retirée »,
+    l'affichage se corrige.
+    """
     key = tr["cmd"]
+    limit = measure_info(key)[3]
+    worn_at = tr.get("worn_ok")
+    worn_line = f"<b>🟢 Bague portée — vérifiée à {hhmm(worn_at, True)}</b> | Ring worn" if worn_at else None
     lines = []
 
     if phase == "requested":
-        lines.append("<b>🔄 Vérification du port · Wear check</b>")
+        lines.append("<b>🔄 Check status de la bague · Wear check</b>")
         lines.append(f"{progress_bar(0, WEAR_CHECK_SECONDS)}  ⏳ demande envoyée · request sent")
-    elif phase == "measuring" and not tr.get("no_signal"):
+    elif phase == "measuring" and not worn_at:
         el = int(elapsed or 0)
-        lines.append("<b>🔄 Vérification du port · Wear check</b>")
-        lines.append(f"{progress_bar(el, WEAR_CHECK_SECONDS)}  {el} s")
-    elif phase == "measuring":
-        lines.append("<b>⚠️ Pas de signal — bague mal placée ou retirée ?</b>")
-        lines.append("No signal — ring loose or removed?")
-        lines.append(f"{progress_bar(1, 1)}  {int(elapsed or 0)} s · attente de la TV · waiting for the TV")
+        lines.append("<b>🔄 Check status de la bague · Wear check</b>")
+        lines.append(f"{progress_bar(el, WEAR_CHECK_SECONDS)}  {el} s / {WEAR_CHECK_SECONDS} s")
+    elif phase in ("measuring", "worn"):
+        lines.append(worn_line)
+        if phase == "measuring" and tr.get("show_value"):
+            el = int(elapsed or 0)
+            lines.append(f"{short_label(key)} — mesure en cours · measuring")
+            lines.append(f"{progress_bar(el, limit)}  {el} s / {limit} s")
     elif phase == "ok":
-        at = (result or {}).get("ts") or int(time.time())
-        lines.append(f"<b>🟢 Bague portée — confirmée à {hhmm(at, True)}</b>")
-        lines.append("Ring worn — confirmed")
+        at = worn_at or (result or {}).get("ts") or int(time.time())
+        lines.append(f"<b>🟢 Bague portée — vérifiée à {hhmm(at, True)}</b> | Ring worn")
         if tr.get("show_value"):
-            _, _, dur = _result_times(tr, result)
+            started, end, dur = _result_times(tr, result)
             lines.append(
-                f"{short_label(key)} : <b>{value_text(key, (result or {}).get('data')).replace('.', ',')}</b> · ⏱ {dur} s"
+                f"✅ {short_label(key)} : <b>{value_text(key, (result or {}).get('data')).replace('.', ',')}</b>"
+                f" · 🕒 {hhmm(started, True)} → {hhmm(end, True)} · ⏱ {dur} s"
             )
-    elif phase == "timeout":
-        lines.append("<b>❓ Pas de signal — port non confirmé</b>")
-        lines.append("Wear not confirmed — vérifie la bague au doigt puis réessaie · check the ring and retry")
-    elif phase in ERROR_TEXT and phase in ("ring_removed", "ring_disconnected", "gateway_offline", "unknown", "mqtt_down"):
+    elif phase in ("ring_removed", "ring_disconnected", "gateway_offline", "unknown", "mqtt_down"):
+        # Problème signalé (même après un « portée » provisoire) : l'affichage se corrige
         emo, fr_txt, en_txt = error_parts(phase)
         lines.append(f"<b>{emo} {fr_txt}</b>")
         if en_txt:
             lines.append(en_txt)
         lines.append(f"🕒 {hhmm((result or {}).get('ts') or int(time.time()), True)}")
+    elif worn_at:
+        # Port vérifié, mais la mesure elle-même n'a pas abouti (pas de résultat, échec…)
+        lines.append(worn_line)
+        if tr.get("show_value"):
+            emo, fr_txt, _ = error_parts(phase)
+            lines.append(f"{short_label(key)} : {emo} {fr_txt}")
+    elif phase == "timeout":
+        lines.append("<b>❓ Pas de signal — port non confirmé</b>")
+        lines.append("Wear not confirmed — vérifie la bague au doigt puis réessaie · check the ring and retry")
     else:
         emo, fr_txt, en_txt = error_parts(phase)
-        lines.append("<b>⚠️ Vérification du port impossible</b>")
+        lines.append("<b>⚠️ Vérification du status de la bague impossible</b>")
         lines.append(f"Wear check failed · {emo} {fr_txt}")
 
     return "\n".join(lines)
@@ -3750,7 +3798,7 @@ def ring_keyboard(access):
     rid = access["ring_id"]
     rows = []
 
-    top = [InlineKeyboardButton("🔄 État", callback_data=f"st:{rid}")]
+    top = [InlineKeyboardButton("🔄 État / Status", callback_data=f"st:{rid}")]
     if access.get("can_view_history"):
         top.append(InlineKeyboardButton("📊 Historique", callback_data=f"history:{rid}"))
     rows.append(top)
@@ -3978,11 +4026,14 @@ def measure_outcome(tr, ring):
         if now_s - tr["t0"] > measure_info(key)[3] + MEASURE_MARGIN_SECONDS:
             phase, elapsed = "timeout", None
 
-    # Vérification du port : aucune valeur après WEAR_CHECK_SECONDS => « pas de signal »
-    # (la TV peut mettre ~40 s à confirmer « retirée » quand la bague renvoie des zéros)
-    if tr.get("mode") == "wear" and phase == "measuring" and not tr.get("no_signal") \
+    # État / Status : WEAR_CHECK_SECONDS de mesure sans problème => bague portée
+    # (la mesure continue ; un « retirée » signalé plus tard corrige l'affichage)
+    if tr.get("mode") == "wear" and phase == "measuring" and not tr.get("worn_ok") \
             and (elapsed or 0) >= WEAR_CHECK_SECONDS:
-        tr["no_signal"] = int(now_s)
+        tr["worn_ok"] = int(now_s)
+        mark_worn_verified(tr["mac"])
+        if not tr.get("show_value"):
+            return "worn", None, None
 
     return phase, elapsed, result
 
@@ -4006,6 +4057,11 @@ async def measure_tick(context: ContextTypes.DEFAULT_TYPE):
 
     await watch_tick(context.bot)
 
+    try:
+        await alert_tick(context.bot)
+    except Exception:
+        log.exception("Alertes : erreur (on continue)")
+
     if not measure_trackers:
         return
 
@@ -4021,12 +4077,12 @@ async def measure_tick(context: ContextTypes.DEFAULT_TYPE):
             rings_seen[mac] = live_ring(mac)
         ring = rings_seen[mac]
 
-        was_flag = tr.get("no_signal")
+        was_flag = tr.get("worn_ok")
         phase, elapsed, result = measure_outcome(tr, ring)
         final = phase not in ("requested", "measuring")
         now_s = time.time()
 
-        if not final and tr.get("no_signal") == was_flag:
+        if not final and tr.get("worn_ok") == was_flag:
             if phase == tr.get("phase") and now_s - tr.get("last_edit", 0) < MEASURE_EDIT_EVERY_SECONDS:
                 continue
 
@@ -4045,7 +4101,7 @@ async def measure_tick(context: ContextTypes.DEFAULT_TYPE):
 
         if ring:
             ring = live_ring(mac) or ring
-        checking = tr.get("mode") == "wear" and not final
+        checking = tr.get("mode") == "wear" and not final and not tr.get("worn_ok")
         block = format_measure_block(tr, phase, elapsed, result)
         latest = await latest_values(tr["ring_id"])
         exclude = tr["cmd"] if (tr.get("mode") != "wear" or tr.get("show_value")) else None
@@ -4149,7 +4205,7 @@ async def start_wear_check(update, context, ring_id):
       - port vérifié il y a moins de WEAR_REUSE_SECONDS : réutilisé
       - une mesure tourne déjà : on la suit (elle sert de test de port)
       - sinon : une mesure HR est lancée ; PORTÉE seulement si une vraie valeur arrive,
-        « pas de signal » après WEAR_CHECK_SECONDS, puis la réponse définitive de la TV
+        PORTÉE après WEAR_CHECK_SECONDS sans problème (la mesure continue en dessous)
     """
     q = update.callback_query
     user = update.effective_user
@@ -4264,6 +4320,192 @@ async def recover_measure_trackers(bot):
     save_measure_trackers()
 
 
+# ---------------- Alertes (notifications Telegram) ----------------
+# Le bot surveille l'état des bagues reçu de Mosquitto et prévient les utilisateurs affectés
+# qui ont le droit « Alertes » (+ TELEGRAM_ADMIN_IDS). Une alerte par type et par bague ;
+# au retour à la normale, le message d'alerte est modifié (« ✅ Rétablie … »), pas de nouveau message.
+#   ⚫ TV hors ligne / 🟡 hors portée : confirmées après ALERT_CONFIRM_SECONDS (anti-coupures brèves)
+#   🖐 bague retirée : dès qu'une mesure la détecte ; levée à la prochaine mesure réussie
+#   🪫 batterie faible : notification silencieuse ; levée en charge ou au-dessus du seuil + 5 %
+
+ALERTS_ENABLED = os.getenv("TELEGRAM_ALERTS_ENABLED", "1").strip().strip(",;").strip().lower() not in ("0", "false", "no", "off")
+ALERT_CONFIRM_SECONDS = max(10, env_int("TELEGRAM_ALERT_CONFIRM_SECONDS", "60"))
+ALERT_BATTERY_LOW = env_int("TELEGRAM_ALERT_BATTERY_LOW", "20")
+ALERT_STARTUP_GRACE = 20          # messages conservés reçus au démarrage : pas d'alerte
+ALERTS_FILE = BASE_DIR / "telegram_alerts.json"
+
+BOT_STARTED_AT = time.time()
+active_alerts = {}                # "MAC|type" -> {since, sent, msgs:[[chat, msg]], ring_id, name, tv}
+_alert_pending = {}               # "MAC|type" -> première détection (confirmation)
+_alert_ring_cache = {}            # MAC -> (t, ring_id, name, [chat_ids])
+
+ALERT_INFO = {
+    # type: (emoji, français, english, conseil fr · en, silencieuse)
+    "offline": ("⚫", "TV hors ligne", "TV offline", "Vérifier que la TV est allumée et connectée · Check the TV is on and online", False),
+    "out_of_range": ("🟡", "Hors portée", "Out of range", "La bague est trop loin de la TV · The ring is too far from the TV", False),
+    "removed": ("🖐", "Bague retirée", "Ring removed", "Veuillez porter la bague · Please wear the ring", False),
+    "battery": ("🪫", "Batterie faible", "Low battery", "Mettre la bague en charge · Please charge the ring", True),
+}
+ALERT_BACK = {
+    "offline": "TV de nouveau en ligne · TV back online",
+    "out_of_range": "Bague de nouveau à portée · Ring back in range",
+    "removed": "Bague de nouveau portée (mesure réussie) · Ring worn again",
+    "battery": "Batterie OK · Battery OK",
+}
+
+
+def load_alerts():
+    try:
+        if ALERTS_FILE.exists():
+            active_alerts.update(json.loads(ALERTS_FILE.read_text(encoding="utf-8") or "{}"))
+    except Exception:
+        log.exception("Lecture des alertes impossible")
+
+
+def save_alerts():
+    try:
+        ALERTS_FILE.write_text(json.dumps(active_alerts), encoding="utf-8")
+    except Exception:
+        log.exception("Sauvegarde des alertes impossible")
+
+
+def alert_conditions(r, now_s):
+    """Conditions en cours pour une bague (état MQTT) -> {type: détail}."""
+    cond = {}
+    if r.get("unbound") or not r.get("statusTs"):
+        return cond
+    online = r.get("online") and now_s - int(r["statusTs"]) <= GATEWAY_OFFLINE_AFTER
+    if not online:
+        cond["offline"] = None
+        return cond                      # TV hors ligne : l'état de la bague n'est plus connu
+    if r.get("ring") == "disconnected":
+        cond["out_of_range"] = None
+    elif r.get("ring") == "connected":
+        if r.get("worn") is False:
+            cond["removed"] = None
+        batt = r.get("battery")
+        if batt is not None and not r.get("charging"):
+            key_on = f"{r['mac']}|battery" in active_alerts
+            limit = ALERT_BATTERY_LOW + (5 if key_on else 0)   # hystérésis
+            if int(batt) < limit:
+                cond["battery"] = int(batt)
+    return cond
+
+
+def get_alert_ring(mac):
+    hit = _alert_ring_cache.get(mac)
+    if hit and time.time() - hit[0] < 60:
+        return hit[1:]
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name FROM rings WHERE mac = %s::macaddr AND active = TRUE", (mac,))
+            row = cur.fetchone()
+    if not row:
+        data = (None, None, [])
+    else:
+        data = (row["id"], row["name"], get_alert_chat_ids(row["id"]))
+    _alert_ring_cache[mac] = (time.time(),) + data
+    return data
+
+
+def alert_text(kind, name, tv, since, detail=None):
+    emo, fr, en, advice, _ = ALERT_INFO[kind]
+    title = f"{fr} {detail} %" if kind == "battery" and detail is not None else fr
+    return (
+        f"{emo} <b>{esc(name)} — {title}</b> | {en}\n"
+        f"{advice}\n"
+        f"🕒 {when_label(since)}" + (f" · 📺 {esc(tv)}" if tv else "")
+    )
+
+
+def alert_back_text(kind, name, since, end):
+    emo, fr, _, _, _ = ALERT_INFO[kind]
+    mins = max(1, round((end - since) / 60))
+    return (
+        f"✅ <b>{esc(name)} — Rétablie</b> | Back to normal\n"
+        f"{ALERT_BACK[kind]}\n"
+        f"{emo} {fr} de {hhmm(since)} à {hhmm(end)} · ⏱ {mins} min"
+    )
+
+
+def alert_markup(ring_id):
+    return InlineKeyboardMarkup([[InlineKeyboardButton("💍 Ouvrir la bague / Open ring", callback_data=f"ring:{ring_id}")]])
+
+
+async def alert_tick(bot):
+    if not ALERTS_ENABLED:
+        return
+    now_s = time.time()
+    with android_lock:
+        snapshot = {mac: dict(r) for mac, r in android_rings.items()}
+
+    current = {}
+    for mac, r in snapshot.items():
+        for kind, detail in alert_conditions(r, now_s).items():
+            current[f"{mac}|{kind}"] = (mac, kind, detail, r)
+
+    changed = False
+
+    # 1) nouvelles conditions (après confirmation)
+    for key, (mac, kind, detail, r) in current.items():
+        if key in active_alerts:
+            continue
+        first = _alert_pending.setdefault(key, now_s)
+        if kind in ("offline", "out_of_range") and now_s - first < ALERT_CONFIRM_SECONDS:
+            continue
+        if first < BOT_STARTED_AT + ALERT_STARTUP_GRACE:
+            # déjà présent au démarrage du bot : on le note sans prévenir (pas de rafale au redémarrage)
+            active_alerts[key] = {"since": int(first), "sent": False, "msgs": [], "silent_start": True}
+            changed = True
+            continue
+        try:
+            ring_id, name, chats = await asyncio.to_thread(get_alert_ring, mac)
+        except Exception:
+            log.exception("Destinataires d'alerte illisibles")
+            continue
+        entry = {"since": int(first), "sent": False, "msgs": [], "ring_id": ring_id, "name": name,
+                 "tv": r.get("deviceName") or r.get("gateway")}
+        active_alerts[key] = entry
+        changed = True
+        if not ring_id or not chats:
+            continue
+        text = alert_text(kind, name, entry["tv"], entry["since"], detail)
+        for chat in chats:
+            try:
+                m = await bot.send_message(
+                    chat_id=chat, text=text, parse_mode="HTML", reply_markup=alert_markup(ring_id),
+                    disable_notification=ALERT_INFO[kind][4],
+                )
+                entry["msgs"].append([chat, m.message_id])
+            except (Forbidden, BadRequest) as exc:
+                log.info("Alerte non délivrée à %s : %s", chat, exc)
+            except RetryAfter as exc:
+                await asyncio.sleep(exc.retry_after)
+            except Exception:
+                log.exception("Envoi d'alerte")
+        entry["sent"] = bool(entry["msgs"])
+        log.info("Alerte %s %s envoyée à %d destinataire(s)", kind, mac, len(entry["msgs"]))
+
+    # 2) conditions disparues : « ✅ Rétablie » dans le même message
+    for key in [k for k in active_alerts if k not in current]:
+        entry = active_alerts.pop(key)
+        _alert_pending.pop(key, None)
+        changed = True
+        kind = key.split("|", 1)[1]
+        if not entry.get("sent") or kind not in ALERT_INFO:
+            continue
+        text = alert_back_text(kind, entry.get("name") or key.split("|")[0], entry["since"], int(now_s))
+        for chat, msg in entry.get("msgs", []):
+            await safe_edit(bot, chat, msg, text, alert_markup(entry["ring_id"]) if entry.get("ring_id") else None)
+
+    # une condition détectée mais disparue avant confirmation : on oublie
+    for key in [k for k in _alert_pending if k not in current]:
+        _alert_pending.pop(key, None)
+
+    if changed:
+        save_alerts()
+
+
 # ---------------- Infos ----------------
 
 def format_ring_info(access, ring):
@@ -4318,8 +4560,8 @@ HIST_METRICS = {
     "hrv": ("💓 HRV", "ms", "hrv"),
     "blood_pressure": ("🩺 Tension", "mmHg", "bp"),
     "stress": ("⚡ Stress", "", "stress"),
-    "fatigue": ("😴 Fatigue", "", None),
-    "health_check": ("🩺 Health-check", "", None),
+    #"fatigue": ("😴 Fatigue", "", None),
+    #"health_check": ("🩺 Health-check", "", None),
 }
 
 HIST_PERIODS = {1: "1 h", 24: "24 h", 168: "7 jours / 7 days", 720: "30 jours / 30 days", 0: "Tout / All"}
@@ -4609,20 +4851,46 @@ async def start_handler(
     )
 
     if not rings:
+        bienvenue =("✅ Connexion Telegram enregistrée / "
+                    "Telegram connection registered.\n\n"
+                    "Aucune bague ne t'est encore affectée.\n"
+                    "No ring is assigned to your account yet.\n\n"
+                    "Tu peux aussi scanner le QR de la bague "
+                    "pour demander son appariement.\n"
+                    "You can also scan the ring QR code "
+                    "to request pairing.")
+        user = update.message.from_user
+        if user.last_name is None:
+                    print("Username is empty.")
+                    last_name = "no_last_name"
+        else:
+                print(f"Username is: {user.last_name}")
+                last_name = user.last_name
+        if user.first_name is None:
+                print("Username is empty.")
+                first_name = "no_firstname"
+        else:
+                print(f"Username is: {user.last_name}")
+                first_name = user.first_name
+        if user.username is None:
+                print("Username is empty.")
+                pseudo = "no_username"
+        else:
+                print(f"Username is: {user.username}")
+                pseudo = user.username
+        last_name = user.last_name
+        name = f"{first_name} {last_name}" if last_name and last_name != "NONE" else first_name
         await update.effective_message.reply_text(
-            "✅ Connexion Telegram enregistrée / "
-            "Telegram connection registered.\n\n"
-            "Aucune bague ne t'est encore affectée.\n"
-            "No ring is assigned to your account yet.\n\n"
-            "Tu peux aussi scanner le QR de la bague "
-            "pour demander son appariement.\n"
-            "You can also scan the ring QR code "
-            "to request pairing."
-        )
+            
+      f"Bienvenue / Welcome, {name} ID_Telegram : ({user.id})\n"
+           f"Connexion au bot REMOTE HEALTH MONITORING enregistrée.\n"
+            f"Aucune bague ne vous est encore affectée.\n\n"
+           f"Connection to the REMOTE HEALTH MONITORING bot recorded.\n"
+            f"No ring is assigned to your account yet.\n")
         return
 
     await update.effective_message.reply_text(
-        "💍 DANY — Mes rings / My rings",
+        "💍 Mes rings / My rings",
         reply_markup=rings_keyboard(
             rings
         ),
@@ -5516,6 +5784,7 @@ async def post_init(app):
 
     telegram_loop = asyncio.get_running_loop()
     await recover_measure_trackers(app.bot)
+    load_alerts()
 
     # Suivi des mesures (en cours → résultat) et des écrans de bague : boucle propre au bot,
     # indépendante de la job-queue (qui peut manquer selon l'installation).

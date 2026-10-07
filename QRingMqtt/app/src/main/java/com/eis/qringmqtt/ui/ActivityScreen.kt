@@ -79,7 +79,7 @@ fun ActivityScreen(isTv: Boolean) {
                     Spacer(Modifier.width(16.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Stat(tr("act.distance"), steps?.let { "%.1f km".format(it.optInt("distance") / 1000.0) } ?: "--")
-                        Stat(tr("act.calories"), steps?.let { "${it.optInt("calories")} kcal" } ?: "--")
+                        Stat(tr("act.calories"), steps?.let { "${kcal(it)} kcal" } ?: "--")
                         Stat(tr("act.active"), steps?.optInt("activeSeconds")?.takeIf { it > 0 }?.let { duration(it) } ?: "--")
                     }
                 }

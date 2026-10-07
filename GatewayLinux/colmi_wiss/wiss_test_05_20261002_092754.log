@@ -1,0 +1,16 @@
+09:27:54.415 | ======================================================================
+09:27:54.416 | WISS / COLMI SIMPLE - TEST 05 FAST - REACHABILITY
+09:27:54.416 | TARGET : COLMI R10_6401 | 30:32:42:32:64:01
+09:27:54.416 | LOG    : /root/colmi_wiss/wiss_test_05_20261002_092754.log
+09:27:54.417 | FAST REACHABILITY -> ONE BLE CONNECTION -> INFO/BATTERY -> HR -> SpO2
+09:27:54.417 | ======================================================================
+09:27:54.417 | 
+=== 1. CONNECT ===
+09:27:54.417 | GATEWAY | REACH TRY 1 | timeout=4.0s | 30:32:42:32:64:01
+09:27:58.581 | GATEWAY | REACH FAIL | try=1 | 4.010s | TimeoutError: 
+09:27:58.832 | GATEWAY | REACH TRY 2 | timeout=2.0s | 30:32:42:32:64:01
+09:28:00.844 | GATEWAY | REACH FAIL | try=2 | 2.011s | TimeoutError: 
+09:28:00.845 | GATEWAY | NOT AVAILABLE | TimeoutError: 
+09:28:00.965 | MQTT | OK | /test_wiss2/R10_6401/result | {"time": "2026-10-02T09:28:00+01:00", "device": "COLMI R10_6401", "mac": "30:32:42:32:64:01", "status": "NOT_AVAILABLE", "battery": null, "charging": null, "hr": [], "hr_error": null, "spo2": [], "spo2_error": null, "program_s": 6.43}
+09:28:01.968 | BT RESTART | fin cycle V5
+09:28:02.389 | BT RESTART | rc=0 | 0.420s

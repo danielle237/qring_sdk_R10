@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.net.wifi.WifiManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -19,6 +20,9 @@ import com.eis.qringmqtt.R
 import com.eis.qringmqtt.ble.RingManager
 import com.eis.qringmqtt.data.AppState
 import com.eis.qringmqtt.data.BrokerConn
+import com.eis.qringmqtt.data.Cmd
+import com.eis.qringmqtt.data.Command
+import com.eis.qringmqtt.data.Source
 import com.eis.qringmqtt.data.RingConn
 import com.eis.qringmqtt.data.tr
 import com.eis.qringmqtt.mqtt.MqttManager
@@ -44,6 +48,7 @@ class RingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var mqtt: MqttManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,6 +77,33 @@ class RingService : Service() {
         CommandProcessor.mqtt = m
         m.start()
         RingManager.connect()
+
+        // Sommeil : synchronisation automatique une fois par jour (à partir de 8 h), bague connectée
+        // et libre → les nuits de la bague (≈ 7 jours) partent au serveur, qui garde 30 jours et plus.
+        scope.launch {
+            delay(60_000)
+            while (isActive) {
+                val cal = java.util.Calendar.getInstance()
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(cal.time)
+                if (cal.get(java.util.Calendar.HOUR_OF_DAY) >= 8 && AppState.prefs.lastSleepSync != today &&
+                    AppState.ring.value == RingConn.CONNECTED && AppState.active.value == null &&
+                    AppState.syncing.value == null
+                ) {
+                    AppState.prefs.lastSleepSync = today
+                    CommandProcessor.submit(Command(Cmd.SLEEP, null, Source.AUTO))
+                }
+                delay(10 * 60_000L)
+            }
+        }
+
+        // Diagnostic de stabilité toutes les 5 min → admin (déconnexions, secours, dernière erreur)
+        scope.launch {
+            delay(30_000)
+            while (isActive) {
+                if (m.isConnected()) m.publishDiag()
+                delay(5 * 60_000L)
+            }
+        }
 
         // Statut toutes les 60 secondes tant que le gateway est connecté (+ IP publique)
         scope.launch {
@@ -127,6 +159,7 @@ class RingService : Service() {
         mqtt?.stop()
         scope.cancel()
         try { wakeLock?.release() } catch (_: Exception) {}
+        try { wifiLock?.release() } catch (_: Exception) {}
         super.onDestroy()
     }
 
@@ -200,6 +233,16 @@ class RingService : Service() {
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "qring:service").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Exception) {
+        }
+        // Wi-Fi gardé actif en veille (sinon la TV le ralentit / coupe : MQTT décroche)
+        try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "qring:wifi").apply {
                 setReferenceCounted(false)
                 acquire()
             }

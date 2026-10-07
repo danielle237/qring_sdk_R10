@@ -3,3 +3,8 @@ paho-mqtt>=2.0
 psycopg[binary]>=3.1
 python-dotenv>=1.0
 python-telegram-bot[job-queue]>=22.0
+# QRingClient (client_api.py) : notifications Firebase
+google-auth>=2.20
+requests>=2.31
+# Photos des résidents : recadrées en 512 px (facultatif, sinon gardées telles quelles)
+Pillow>=10.0

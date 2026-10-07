@@ -61,7 +61,8 @@ enum class Cmd(val key: String, val measure: Boolean, val durationSec: Int, val 
 enum class Source(val json: String) {
     MQTT("mqtt"), MANUAL("manual"), AUTO("auto");
 
-    val label: String get() = tr("src.$json")
+    /** « via TV » / « via téléphone » / « à distance » / « auto » (le code JSON ne change pas). */
+    val label: String get() = if (this == MANUAL && !I18n.isTv) tr("src.manual_phone") else tr("src.$json")
 }
 
 /** Une commande à exécuter (MQTT ou bouton). */
@@ -74,7 +75,23 @@ data class Command(
     val arg: String? = null,
     /** Topic sur lequel répondre ("gateway" ou "ring"). */
     val viaGateway: Boolean = false
-)
+) {
+    /** Demande venue de l'app téléphone Client RHM (reqId « app-<login>-… ») : login, « * » si inconnu, "" sinon. */
+    val phoneBy: String
+        get() {
+            val id = reqId ?: return ""
+            if (!id.startsWith("app-")) return ""
+            val parts = id.split("-")
+            return if (parts.size >= 3) parts.subList(1, parts.size - 1).joinToString("-") else "*"
+        }
+
+    /** « r » = « Actualiser l'état » (reqId finissant par -r…), « p » = mesure lancée par un bouton. */
+    val phoneVia: String
+        get() {
+            if (phoneBy.isEmpty()) return ""
+            return if (reqId!!.substringAfterLast('-').startsWith("r")) "r" else "p"
+        }
+}
 
 /** Une valeur affichée sur une carte + publiée sur MQTT. */
 data class Reading(
@@ -82,10 +99,22 @@ data class Reading(
     val values: JSONObject,      // {"value":72,"rri":833} ou {"sbp":120,"dbp":80}…
     val ts: Long,                // secondes
     val source: Source,
-    val ringMac: String = ""     // bague qui a fait la mesure
+    val ringMac: String = "",    // bague qui a fait la mesure
+    val by: String = "",         // lancée depuis Client RHM : login du compte (« * » si inconnu)
+    val via: String = ""         // « p » mesure lancée par un bouton, « r » « Actualiser l'état »
 ) {
+    /** « via TV » / « à distance » / « 📱 prise · wissem » / « 📱 actualisée · wissem » / « auto » */
+    val label: String
+        get() = when {
+            by.isEmpty() -> source.label
+            else -> "📱 " + tr(if (via == "r") "src.phone_r" else "src.phone_p") +
+                (if (by == "*") "" else " " + tr("src.by", by))
+        }
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("type", type); put("values", values); put("ts", ts); put("source", source.json); put("ringMac", ringMac)
+        if (by.isNotEmpty()) put("by", by)
+        if (via.isNotEmpty()) put("via", via)
     }
 
     companion object {
@@ -94,7 +123,9 @@ data class Reading(
             o.optJSONObject("values") ?: JSONObject(),
             o.optLong("ts"),
             Source.values().firstOrNull { it.json == o.optString("source") } ?: Source.AUTO,
-            o.optString("ringMac", "")
+            o.optString("ringMac", ""),
+            o.optString("by", ""),
+            o.optString("via", "")
         )
     }
 }
@@ -113,7 +144,9 @@ data class MeasureResult(
     val ok: Boolean,
     val values: JSONObject?,
     val error: String?,
-    val atMs: Long
+    val atMs: Long,
+    /** Mesure lancée par « Actualiser l'état » depuis Client RHM (reqId « app-…-r… »). */
+    val phoneCheck: Boolean = false
 )
 
 /** Erreur temporaire affichée sur une carte. */
@@ -130,6 +163,8 @@ data class RingInfo(
     val hardware: String = "",
     val battery: Int? = null,
     val charging: Boolean = false,
+    /** Heure de la dernière lecture de la batterie (ms), null = jamais lue. */
+    val batteryAtMs: Long? = null,
     val supports: Set<String> = emptySet(),
     val supportsKnown: Boolean = false
 )

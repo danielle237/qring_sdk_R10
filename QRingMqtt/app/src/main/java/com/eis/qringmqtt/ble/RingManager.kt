@@ -40,9 +40,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import com.eis.qringmqtt.data.LogEntry
 
 /**
- * Connexion Bluetooth à la bague, reconnexion automatique, scan, batterie, infos.
+ * Connexion Bluetooth à la bague, scan, batterie, infos.
+ *
+ * Reconnexion : comme l'app QRing officielle, c'est le SDK qui reconnecte la bague
+ * (setNeedConnect(true) + reConnectMac) dès qu'elle revient à portée. L'app ne lance PAS
+ * sa propre boucle de reconnexion (les deux se gênaient : connexions en parallèle, GATT 133).
+ * Filet de sécurité lent (watchdog) :
+ *   - bague déconnectée depuis 2 min → nettoyage + connectWithScan (SDK bloqué) ;
+ *   - 10 min → remise à zéro complète de la connexion du SDK ;
+ *   - bague connectée mais muette (3 commandes sans réponse) → déconnexion propre.
  */
 @SuppressLint("MissingPermission")
 object RingManager {
@@ -77,6 +87,8 @@ object RingManager {
             application, BluetoothStateReceiver(), BleAction.getDeviceIntentFilter(),
             ContextCompat.RECEIVER_EXPORTED
         )
+        startWatchdog()
+        RssiReader.start()
     }
 
     val isReady: Boolean get() = AppState.ring.value == RingConn.CONNECTED
@@ -96,6 +108,7 @@ object RingManager {
             try { BleOperateManager.getInstance().unBindDevice() } catch (_: Exception) {}
         }
         prefs.ringMac = mac
+        AppState.ringLabel.value = prefs.ringLabel // vidé si c'est une autre bague
         prefs.ringName = name
         prefs.firmware = null
         prefs.hardware = null
@@ -169,6 +182,7 @@ object RingManager {
         } catch (_: Exception) {}
         val prefs = AppState.prefs
         prefs.ringMac = null
+        AppState.ringLabel.value = ""
         prefs.ringName = null
         prefs.firmware = null
         prefs.hardware = null
@@ -187,7 +201,7 @@ object RingManager {
     /** Demande une lecture de batterie dès que possible (ouverture de l'app). */
     fun requestBatteryOnOpen() {
         batteryPending = true
-        if (isReady) scope.launch { readBattery() }
+        if (isReady) scope.launch { bleMutex.withLock { readBattery() } }
     }
 
     // ------------------------------------------------------------------ connexion
@@ -209,21 +223,16 @@ object RingManager {
             DeviceManager.getInstance().deviceAddress = mac
             BleOperateManager.getInstance().setNeedConnect(true)
             BleOperateManager.getInstance().reConnectMac = mac
-            // Une tentative sur deux passe par un scan (plus fiable si la bague a changé de canal)
-            if (attempt % 2 == 0) BleOperateManager.getInstance().connectDirectly(mac)
-            else BleOperateManager.getInstance().connectWithScan(mac)
+            // Une seule connexion directe ; ensuite c'est le SDK qui reconnecte (setNeedConnect)
+            BleOperateManager.getInstance().connectDirectly(mac)
         } catch (e: Exception) {
             Log.e(TAG, "connect", e)
+            Diag.error("connect : ${e.message}")
         }
         attempt++
-        // Si rien ne se passe en 25 s → nouvelle tentative plus tard
-        reconnectJob = scope.launch {
-            delay(25_000)
-            if (AppState.ring.value == RingConn.CONNECTING) scheduleReconnect()
-        }
     }
 
-    /** Reconnexion avec délai croissant : 5 s, 10 s, 30 s puis toutes les 60 s. */
+    /** Bague perdue : on laisse le SDK la reconnecter (pas de boucle de l'app). */
     fun scheduleReconnect() {
         if (AppState.prefs.ringMac == null) return
         if (!isBluetoothOn()) {
@@ -231,15 +240,83 @@ object RingManager {
             return
         }
         reconnectJob?.cancel()
-        val wait = when (attempt) { 0, 1 -> 5; 2 -> 10; 3 -> 30; else -> 60 }
+        AppState.reconnectInSec.value = null
         AppState.ring.value = RingConn.DISCONNECTED
-        reconnectJob = scope.launch {
-            for (s in wait downTo 1) {
-                AppState.reconnectInSec.value = s
-                delay(1000)
+        try {
+            BleOperateManager.getInstance().setNeedConnect(true)
+            BleOperateManager.getInstance().reConnectMac = AppState.prefs.ringMac
+        } catch (_: Exception) {}
+    }
+
+    // ------------------------------------------------------------------ filet de sécurité (watchdog)
+
+    private var disconnectedSince = 0L
+    private var lastRescue = 0L
+
+    private fun startWatchdog() {
+        scope.launch {
+            while (true) {
+                delay(15_000)
+                try { watchdogTick() } catch (e: Exception) { Log.w(TAG, "watchdog", e) }
             }
-            AppState.reconnectInSec.value = null
-            connect()
+        }
+    }
+
+    private fun watchdogTick() {
+        val mac = AppState.prefs.ringMac ?: run { disconnectedSince = 0; return }
+        if (!isBluetoothOn()) { disconnectedSince = 0; return }
+        val now = System.currentTimeMillis()
+        if (AppState.ring.value == RingConn.CONNECTED) { disconnectedSince = 0; return }
+        if (disconnectedSince == 0L) disconnectedSince = now
+        val since = now - disconnectedSince
+        // SDK bloqué : rien depuis 2 min → secours, puis toutes les 2 min ; remise à zéro complète après 10 min
+        if (since >= 120_000L && now - lastRescue >= 120_000L) {
+            lastRescue = now
+            rescue(mac, hard = since >= 600_000L)
+        }
+    }
+
+    private fun rescue(mac: String, hard: Boolean) {
+        Diag.rescues++
+        val min = (System.currentTimeMillis() - disconnectedSince) / 60_000
+        AppState.log(LogEntry.Kind.INFO, "bague",
+            if (hard) "Pas de connexion depuis $min min : remise à zéro de la connexion Bluetooth"
+            else "Pas de connexion depuis $min min : nouvelle recherche de la bague")
+        val m = BleOperateManager.getInstance()
+        try {
+            if (hard) m.setNeedConnect(false)
+            m.disconnect()          // ferme une éventuelle connexion bloquée (pas d'empilement)
+        } catch (_: Exception) {}
+        scope.launch {
+            delay(if (hard) 3_000 else 1_000)
+            if (AppState.ring.value == RingConn.CONNECTED) return@launch
+            try {
+                DeviceManager.getInstance().deviceAddress = mac
+                m.setNeedConnect(true)
+                m.reConnectMac = mac
+                m.connectWithScan(mac)
+            } catch (e: Exception) {
+                Diag.error("secours : ${e.message}")
+            }
+        }
+    }
+
+    /** 3 commandes sans réponse alors que la bague est « connectée » : déconnexion propre, le SDK reconnecte. */
+    internal fun onMute() {
+        val mac = AppState.prefs.ringMac ?: return
+        if (AppState.ring.value != RingConn.CONNECTED) return
+        Diag.muteResets++
+        Diag.error("bague muette (3 commandes sans réponse)")
+        AppState.log(LogEntry.Kind.ERROR, "bague", "La bague ne répond plus : reconnexion propre")
+        try { BleOperateManager.getInstance().disconnect() } catch (_: Exception) {}
+        scope.launch {
+            delay(3_000)
+            if (AppState.ring.value == RingConn.CONNECTED || AppState.ring.value == RingConn.CONNECTING) return@launch
+            try {
+                BleOperateManager.getInstance().setNeedConnect(true)
+                BleOperateManager.getInstance().reConnectMac = mac
+                BleOperateManager.getInstance().connectDirectly(mac)
+            } catch (_: Exception) {}
         }
     }
 
@@ -256,19 +333,26 @@ object RingManager {
         attempt = 0
         AppState.reconnectInSec.value = null
         AppState.ring.value = RingConn.CONNECTED
+        disconnectedSince = 0
+        Diag.connected()
+        BleHealth.ok()
         events.tryEmit("connected")
         scope.launch {
             delay(800)
-            syncTimeAndSupports()
-            delay(300)
-            try {
-                CommandHandle.getInstance().executeReqCmdNoCallback(SimpleKeyReq(Constants.CMD_BIND_SUCCESS))
-            } catch (_: Exception) {}
-            delay(300)
-            readVersions()
-            if (batteryPending || AppState.info.value.battery == null) {
-                delay(500)
-                readBattery()
+            // Mise à l'heure, versions, batterie : dans la file Bluetooth (jamais en même temps qu'une mesure)
+            bleMutex.withLock {
+                syncTimeAndSupports()
+                delay(300)
+                try {
+                    CommandHandle.getInstance().executeReqCmdNoCallback(SimpleKeyReq(Constants.CMD_BIND_SUCCESS))
+                } catch (_: Exception) {}
+                delay(300)
+                readVersions()
+                delay(900)      // versions lues en 2 temps (400 ms)
+                if (batteryPending || AppState.info.value.battery == null) {
+                    delay(200)
+                    readBattery()
+                }
             }
             events.tryEmit("info")
         }
@@ -279,6 +363,7 @@ object RingManager {
             AppState.ring.value = RingConn.NO_RING
             return
         }
+        if (AppState.ring.value == RingConn.CONNECTED) Diag.disconnected()
         events.tryEmit("disconnected")
         scheduleReconnect()
     }
@@ -287,7 +372,7 @@ object RingManager {
 
     /** Met la bague à l'heure et récupère la liste des fonctions supportées. */
     private suspend fun syncTimeAndSupports() {
-        val rsp = awaitCallback<SetTimeRsp?>(6000) { resume ->
+        val rsp = awaitCallback<SetTimeRsp?>(6000, health = true) { resume ->
             CommandHandle.getInstance().executeReqCmd(SetTimeReq(0), ICommandResponse<SetTimeRsp> { resume(it) })
         } ?: return
         val s = mutableSetOf("hr", "stress", "steps", "sleep", "sedentary", "history", "battery")
@@ -330,14 +415,16 @@ object RingManager {
     /** Lit la batterie. Renvoie null si la bague ne répond pas. */
     suspend fun readBattery(): BatteryRsp? {
         if (!isReady) return null
-        val rsp = awaitCallback<BatteryRsp?>(6000) { resume ->
+        val rsp = awaitCallback<BatteryRsp?>(6000, health = true) { resume ->
             CommandHandle.getInstance().executeReqCmd(
                 SimpleKeyReq(Constants.CMD_GET_DEVICE_ELECTRICITY_VALUE),
                 ICommandResponse<BatteryRsp> { resume(it) })
         }
         if (rsp != null) {
             batteryPending = false
-            AppState.info.update { it.copy(battery = rsp.batteryValue, charging = rsp.isCharging) }
+            AppState.info.update {
+                it.copy(battery = rsp.batteryValue, charging = rsp.isCharging, batteryAtMs = System.currentTimeMillis())
+            }
             events.tryEmit("battery")
         }
         return rsp
