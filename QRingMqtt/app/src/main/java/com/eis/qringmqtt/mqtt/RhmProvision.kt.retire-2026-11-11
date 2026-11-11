@@ -1,0 +1,89 @@
+package com.eis.qringmqtt.mqtt
+
+import com.eis.qringmqtt.data.AppState
+import com.eis.qringmqtt.data.LogEntry
+import org.json.JSONObject
+import java.security.SecureRandom
+
+/**
+ * Canal permanent de provisioning Android : rhm/provision/android/<device_id>/{cmd,state}.
+ * Décrit dans le doc "APK Android RHM -- réception des commandes et réponses MQTT" (10/11/2026).
+ *
+ * Portée volontairement limitée (décision explicite du 10/11/2026, prise après avoir confirmé par
+ * lecture du code Admin réel que ce canal n'a aujourd'hui aucun écouteur côté serveur -- cf. doc projet
+ * "PROVISIONING_android_contrat_admin_actuel.md", qui retire justement cette proposition) :
+ *
+ *  - on met en place les TOPICS et la STRUCTURE JSON du reçu READY (§3.1 du doc) ;
+ *  - on NE SIGNE PAS : le champ "signature" est laissé vide avec un TODO explicite. Aucun fichier de
+ *    référence (reference_linux_20261110/, TEST_SIGNATURE_VECTOR.json) n'a été trouvé pour vérifier la
+ *    canonicalisation HMAC-SHA256 octet par octet, et aucun mécanisme réel de fourniture de la clé par
+ *    appareil ("registre privé EIS") n'a été précisé -- deviner cette partie créerait une signature qui
+ *    ne validerait jamais rien.
+ *  - on N'IMPLÉMENTE PAS la machine prepare/commit/finalize : les commandes reçues sur /cmd sont
+ *    seulement journalisées (écran Journal), jamais appliquées. Pas de bascule automatique de
+ *    client/site depuis ce canal.
+ *
+ * Objectif : une base relisable (topics + formes JSON) sans fabriquer de cryptographie ni d'automate
+ * de transaction sur la base d'un document qui n'a pas de contrepartie serveur confirmée.
+ */
+object RhmProvision {
+
+    @Volatile private var sessionId: String = newHex(32)
+
+    /** Nouvelle session MQTT (32 hex) -- à appeler à chaque (re)connexion au broker. */
+    fun onConnected() {
+        sessionId = newHex(32)
+    }
+
+    fun cmdTopic(): String = "rhm/provision/android/${AppState.prefs.provisionDeviceId}/cmd"
+    fun stateTopic(): String = "rhm/provision/android/${AppState.prefs.provisionDeviceId}/state"
+
+    /** Reçu READY (§3.1 du doc). Champ "signature" volontairement vide -- voir commentaire de tête. */
+    fun readyStateJson(): JSONObject {
+        val p = AppState.prefs
+        val body = JSONObject()
+            .put("schema", 1)
+            .put("device_id", p.provisionDeviceId)
+            .put("request_id", JSONObject.NULL)
+            .put("revision", p.provisionRevision)
+            .put("phase", "READY")
+            .put(
+                "identity",
+                JSONObject()
+                    .put("client", p.rhmClient)
+                    .put("site", p.rhmSite)
+                    .put("gateway", NetInfo.topicSafe(p.gatewayName))
+            )
+            // Aucune notion de "configuration locale canonique" n'est définie côté Android aujourd'hui
+            // (le doc ne précise pas ce qu'elle doit contenir pour ce profil) : laissé vide plutôt
+            // qu'inventé, à définir avec ChatGPT si ce canal devient réel.
+            .put("config_hash", "")
+        val receipt = JSONObject()
+            .put("body", body)
+            // TODO signature HMAC-SHA256 : non implémentée, voir le commentaire de tête de ce fichier.
+            .put("signature", "")
+        return JSONObject()
+            .put("gateway", NetInfo.topicSafe(p.gatewayName))
+            .put("session_id", sessionId)
+            .put("receipt", receipt)
+    }
+
+    /** Commande reçue sur le canal permanent -- journalisée seulement, jamais appliquée (voir en-tête :
+     *  pas de machine prepare/commit/finalize tant que la signature et sa contrepartie serveur ne sont
+     *  pas confirmées). */
+    fun onCmd(payload: String) {
+        val action = try { JSONObject(payload).optString("action", "?") } catch (_: Exception) { "?" }
+        AppState.log(
+            LogEntry.Kind.INFO,
+            "provision",
+            "Commande '$action' reçue sur le canal de provisioning -- non appliquée " +
+                "(machine prepare/commit/finalize pas implémentée, signature non vérifiable)."
+        )
+    }
+
+    private fun newHex(bytes: Int): String {
+        val b = ByteArray(bytes / 2)
+        SecureRandom().nextBytes(b)
+        return b.joinToString("") { "%02x".format(it) }
+    }
+}

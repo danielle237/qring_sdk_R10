@@ -8,6 +8,8 @@ enum class RingConn(val json: String) {
     CONNECTING("connecting"),
     CONNECTED("connected"),
     DISCONNECTED("disconnected"),
+    /** Connexion GATT à la demande : bague libre (à portée), connectée seulement pour une mesure. */
+    IDLE("idle"),
     BLUETOOTH_OFF("bluetooth_off");
 
     val label: String get() = tr("ring.$json")
@@ -48,7 +50,9 @@ enum class Cmd(val key: String, val measure: Boolean, val durationSec: Int, val 
     BIND("bind", false, 0, true),
     UNBIND("unbind", false, 0, true),
     SCAN("scan", false, 0, true),
-    LANG("lang", false, 0, true);
+    LANG("lang", false, 0, true),
+    /** Nouveau code PIN envoyé par l'admin : {"cmd":"pin","pinHash":"…"} (haché, jamais en clair). */
+    PIN("pin", false, 0, true);
 
     val label: String get() = tr("m.$key")
 
@@ -201,6 +205,8 @@ object Err {
     const val NOT_FOUND = "not_found"
     const val BLUETOOTH_OFF = "bluetooth_off"
     const val BAD_REQUEST = "bad_request"
+    /** Jalon 0 : libération GATT non prouvée → gateway NOT_READY. */
+    const val RELEASE_UNKNOWN = "release_unknown"
 
     fun label(code: String): String = tr("err.$code")
 }

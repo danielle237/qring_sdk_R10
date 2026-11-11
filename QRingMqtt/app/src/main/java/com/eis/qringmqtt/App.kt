@@ -15,5 +15,7 @@ class App : Application() {
         I18n.isTv = MainActivity.detectTv(this)
         // État de la bague + popups (hors portée, retirée, reconnectée)
         StatusCheck.init()
+        // Service toujours relancé (démarrage de la montre, app fermée par Android)
+        com.eis.qringmqtt.service.KeepAlive.schedule(this)
     }
 }

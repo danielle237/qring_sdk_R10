@@ -1,0 +1,263 @@
+package com.eis.qringmqtt.dm
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.eis.qringmqtt.R
+import com.eis.qringmqtt.data.AppState
+import com.eis.qringmqtt.data.BrokerConn
+import com.eis.qringmqtt.data.Reading
+import com.eis.qringmqtt.data.RingConn
+import com.eis.qringmqtt.data.tr
+import kotlinx.coroutines.delay
+
+private val BG = Color(0xFF0D1220)
+private val CARD = Color(0xFF182036)
+private val LINE = Color(0xFF2A3350)
+private val TXT = Color(0xFFEEF1FA)
+private val MUTED = Color(0xFF8B93B0)
+private val OK = Color(0xFF3ECF8E)
+private val WARN = Color(0xFFFFB547)
+private val ERR = Color(0xFFFF6B6B)
+
+private data class Vital(val type: String, val title: String, val short: String, val icon: String,
+                         val unit: String, val tint: Color)
+
+private val VITALS = listOf(
+    Vital("hr", "dm.hr", "dm.hr_short", "♥", "bpm", Color(0xFFFF5D73)),
+    Vital("spo2", "dm.spo2", "dm.spo2", "💧", "%", Color(0xFF4FC3F7)),
+    Vital("hrv", "dm.hrv", "dm.hrv", "∿", "ms", Color(0xFF3ECF8E)),
+    Vital("temp", "dm.temp", "dm.temp_short", "🌡", "°C", Color(0xFFFFA04D)),
+)
+
+/** « il y a 2 min » à partir d'un horodatage en secondes. */
+private fun ago(ts: Long, nowMs: Long): String {
+    val s = (nowMs / 1000 - ts).coerceAtLeast(0)
+    return when {
+        s < 60 -> tr("dm.ago_now")
+        s < 3600 -> tr("dm.ago_min", s / 60)
+        s < 86400 -> tr("dm.ago_h", s / 3600)
+        else -> tr("dm.ago_d", s / 86400)
+    }
+}
+
+private fun valueText(v: Vital, r: Reading?): String {
+    if (r == null) return "—"
+    return when (v.type) {
+        "temp" -> r.values.optDouble("value").takeIf { !it.isNaN() && it > 0 }?.let { "%.1f".format(it) } ?: "—"
+        else -> r.values.optInt("value").takeIf { it > 0 }?.toString() ?: "—"
+    }
+}
+
+/**
+ * Écran DM passif : bandeau (RHM, client, gateway + modèle, bague suivie, MQTT, état Bluetooth)
+ * + 4 tuiles (fréquence cardiaque, SpO₂, HRV, température) avec la dernière valeur et son âge.
+ * AUCUN bouton de mesure. Appui long (3 s) sur le logo : accès technique (PIN si activé).
+ */
+@Composable
+fun DmScreen(onTech: () -> Unit) {
+    val ctx = LocalContext.current
+    val round = DmMode.round(ctx)
+    val broker by AppState.broker.collectAsState()
+    val ring by AppState.ring.collectAsState()
+    val info by AppState.info.collectAsState()
+    val label by AppState.ringLabel.collectAsState()
+    val readings by AppState.readings.collectAsState()
+    val active by AppState.active.collectAsState()
+    val errors by AppState.errors.collectAsState()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
+
+    val mac = AppState.prefs.ringMac
+    val latest = remember(readings, mac) {
+        readings.filter { mac != null && it.ringMac.equals(mac, true) }.groupBy { it.type }.mapValues { it.value.maxByOrNull { r -> r.ts } }
+    }
+    // ALL : la valeur de chaque mesure est aussi rangée dans sa carte (hr, spo2, temp, hrv)
+    val client = AppState.prefs.clientName.ifBlank { "—" }
+    val gw = AppState.prefs.gatewayName
+    val ringText = when {
+        mac == null -> tr("dm.no_ring")
+        else -> info.name.ifBlank { mac }
+    }
+    val bleText: Pair<String, Color> = when {
+        active != null -> tr("dm.measuring", active!!.cmd.label) to OK
+        mac == null -> tr("dm.no_ring") to MUTED
+        ring == RingConn.CONNECTED -> tr("dm.ble_connected") to OK
+        ring == RingConn.IDLE -> tr("dm.ble_seen") to OK
+        ring == RingConn.BLUETOOTH_OFF -> tr("dm.ble_off") to ERR
+        else -> tr("dm.ble_out") to WARN
+    }
+    val mqttOk = broker == BrokerConn.ONLINE
+    val mqttText = if (mqttOk) tr("dm.mqtt_ok") else if (broker == BrokerConn.CONNECTING) tr("dm.mqtt_conn") else tr("dm.mqtt_off")
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(BG)) {
+        val minSide = if (maxWidth < maxHeight) maxWidth else maxHeight
+        val k = (minSide.value / 360f).coerceIn(0.55f, 2.2f)      // échelle selon la taille réelle de l'écran
+        fun s(v: Float): TextUnit = (v * k).sp
+        fun d(v: Float): Dp = (v * k).dp
+
+        if (round) {
+            // ---------------- DM80 (466 × 466 px, 194 dpi ≈ 384 dp) : tout dans le disque.
+            // Bloc d'environ 0,68 × le diamètre, centré : les coins de la grille restent dans le cercle.
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = minSide * 0.15f, vertical = minSide * 0.10f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Logo(d(24f), onTech)
+                Text("GATEWAY RHM", color = TXT, fontSize = s(15f), fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Line("${tr("dm.client")} ", client, s(10f))
+                Line("${tr("dm.gateway")} ", "$gw — ${DmMode.label(ctx)}", s(10f))
+                Line("${tr("dm.ring")} ", ringText + (label.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), s(10f))
+                Spacer(Modifier.height(d(3f)))
+                Row(horizontalArrangement = Arrangement.spacedBy(d(4f))) {
+                    Chip(if (mqttOk) "MQTT" else mqttText, if (mqttOk) OK else ERR, s(9f), d(5f))
+                    Chip(bleText.first, bleText.second, s(9f), d(5f))
+                }
+                Spacer(Modifier.height(d(4f)))
+                Grid(latest, errors.keys, now, k * 0.92f, compact = true,
+                    modifier = Modifier.fillMaxWidth(0.94f).height(minSide * 0.36f))
+                Text(tr("dm.remote_short"), color = MUTED, fontSize = s(8f), textAlign = TextAlign.Center,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = d(3f)))
+            }
+        } else {
+            // ---------------- DM100 : bandeau + grille 2 × 2
+            Column(Modifier.fillMaxSize().padding(d(10f)), verticalArrangement = Arrangement.spacedBy(d(8f))) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Logo(d(44f), onTech)
+                    Spacer(Modifier.width(d(10f)))
+                    Column(Modifier.weight(1f)) {
+                        Text("GATEWAY RHM", color = TXT, fontSize = s(20f), fontWeight = FontWeight.ExtraBold)
+                        Line("${tr("dm.client")} ", client, s(12f), TextAlign.Start)
+                        Line("${tr("dm.gateway")} ", "$gw — ${DmMode.label(ctx)}", s(12f), TextAlign.Start)
+                        Line("${tr("dm.ring_followed")} ", ringText + (mac?.let { "  ·  $it" } ?: ""), s(12f), TextAlign.Start)
+                        if (label.isNotBlank()) Line("${tr("dm.resident")} ", label, s(12f), TextAlign.Start)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
+                    Chip(mqttText, if (mqttOk) OK else ERR, s(11f), d(8f))
+                    Chip(bleText.first, bleText.second, s(11f), d(8f))
+                }
+                Grid(latest, errors.keys, now, k, compact = false, modifier = Modifier.fillMaxWidth().weight(1f))
+                Text(tr("dm.remote"), color = MUTED, fontSize = s(10f))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Logo(size: Dp, onTech: () -> Unit) {
+    Image(
+        painterResource(R.drawable.rhm_logo), "RHM",
+        Modifier.size(size).clip(RoundedCornerShape(size / 5))
+            // Appui long : réglages techniques (protégés par le PIN si l'admin l'a activé)
+            .combinedClickable(onClick = {}, onLongClick = onTech)
+    )
+}
+
+@Composable
+private fun Line(k: String, v: String, size: TextUnit, align: TextAlign = TextAlign.Center) {
+    Text(
+        androidx.compose.ui.text.buildAnnotatedString {
+            pushStyle(androidx.compose.ui.text.SpanStyle(color = MUTED)); append(k); pop()
+            pushStyle(androidx.compose.ui.text.SpanStyle(color = TXT, fontWeight = FontWeight.Bold)); append(v); pop()
+        },
+        fontSize = size, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align
+    )
+}
+
+@Composable
+private fun Chip(text: String, color: Color, size: TextUnit, pad: Dp) {
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = 0.14f)).padding(horizontal = pad * 1.4f, vertical = pad * 0.6f),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(pad).clip(CircleShape).background(color))
+        Spacer(Modifier.width(pad * 0.8f))
+        Text(text, color = TXT, fontSize = size, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun Grid(latest: Map<String, Reading?>, errs: Set<String>, now: Long, k: Float, compact: Boolean, modifier: Modifier) {
+    val gap = (8f * k).dp
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(gap)) {
+        for (row in VITALS.chunked(2)) {
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                for (v in row) Tile(v, latest[v.type], v.type in errs, now, k, compact, Modifier.weight(1f).fillMaxHeight())
+            }
+        }
+    }
+}
+
+@Composable
+private fun Tile(v: Vital, r: Reading?, failed: Boolean, now: Long, k: Float, compact: Boolean, modifier: Modifier) {
+    fun s(x: Float): TextUnit = (x * k).sp
+    val value = valueText(v, r)
+    Row(
+        modifier.clip(RoundedCornerShape((14f * k).dp)).background(CARD).padding((8f * k).dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (!compact) {
+            Box(Modifier.size((40f * k).dp).clip(RoundedCornerShape((10f * k).dp)).background(v.tint.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center) { Text(v.icon, color = v.tint, fontSize = s(20f)) }
+            Spacer(Modifier.width((10f * k).dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text((if (compact) v.icon + " " else "") + tr(if (compact) v.short else v.title),
+                color = TXT, fontSize = s(if (compact) 11f else 14f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(value, color = if (value == "—") MUTED else TXT, fontSize = s(if (compact) 24f else 34f),
+                    fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                if (value != "—") Text(" ${v.unit}", color = MUTED, fontSize = s(if (compact) 11f else 15f), maxLines = 1,
+                    modifier = Modifier.padding(bottom = (3f * k).dp))
+            }
+            Text(
+                when {
+                    failed -> tr("dm.last_failed")
+                    r != null -> (if (compact) "" else tr("dm.last_sync") + " ") + ago(r.ts, now)
+                    else -> tr("dm.no_value")
+                },
+                color = if (failed) WARN else MUTED, fontSize = s(if (compact) 9f else 11f), maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}

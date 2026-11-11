@@ -57,6 +57,8 @@ object RssiReader {
             return
         }
         if (bleMutex.isLocked) return          // mesure / synchro en cours : on ne la dérange pas
+        // Connexion pour une mesure, mesure en cours ou bague sur le point d'être lâchée : pas de lecture RSSI
+        if (AppState.active.value != null || AppState.syncing.value != null || RingManager.searchingForMeasure) return
         if (!hook()) return
         withContext(Dispatchers.IO) {
             try { BleOperateManager.getInstance().execute(ReadRssiRequest.getInstance()) } catch (_: Exception) {}

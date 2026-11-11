@@ -61,7 +61,8 @@ object PinLock {
 fun PinGate(title: String, content: @Composable () -> Unit) {
     var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(1000); tick = System.currentTimeMillis() } }
-    if (tick < PinLock.unlockedUntil) {
+    // PIN désactivé depuis l'admin : page ouverte directement
+    if (!AppState.prefs.pinEnabled || tick < PinLock.unlockedUntil) {
         content()
     } else {
         PinPad(title, tick)

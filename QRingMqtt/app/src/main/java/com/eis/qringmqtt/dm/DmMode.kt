@@ -1,0 +1,77 @@
+package com.eis.qringmqtt.dm
+
+import android.content.Context
+import android.os.Build
+import com.eis.qringmqtt.data.AppState
+import kotlinx.coroutines.flow.MutableStateFlow
+
+/**
+ * Écran DM (montres DM100 rectangulaire / DM80 ronde) : afficheur PASSIF de gateway.
+ * Activé automatiquement sur les modèles DM100 / DM80, ou forcé par l'admin (réglage « dmMode »).
+ * Aucune mesure ni action locale sur cet écran : les mesures sont déclenchées à distance.
+ */
+object DmMode {
+    private fun buildText(): String =
+        listOf(Build.MODEL, Build.PRODUCT, Build.DEVICE, Build.BRAND).joinToString(" ") { it ?: "" }.uppercase()
+
+    /** « DM100 », « DM80 » ou "" (autre appareil). */
+    fun model(): String {
+        if (com.eis.qringmqtt.mqtt.RhmIdentity.RHM_ONLY) return com.eis.qringmqtt.mqtt.RhmIdentity.DEVICE_MODEL
+        val t = buildText()
+        return when {
+            "DM100" in t -> "DM100"
+            "DM80" in t -> "DM80"
+            else -> ""
+        }
+    }
+
+    /** Écran DM affiché ? auto = modèle DM détecté ; on / off = imposé par l'admin. */
+    val active: Boolean
+        get() = if (com.eis.qringmqtt.mqtt.RhmIdentity.RHM_ONLY) true else when (AppState.prefs.dmMode) {
+            "on" -> true
+            "off" -> false
+            else -> model().isNotEmpty()
+        }
+
+    /** Dernière forme détectée (ronde ou non), mémorisée par round(ctx) pour que size() connaisse
+     *  la forme sans avoir besoin d'un Context -- toujours recalculée avant usage (round(ctx) est
+     *  appelé en tout premier dans DmScreen, à chaque dessin). */
+    @Volatile private var lastRound: Boolean = false
+
+    /** Écran rond ? DM80, écran annoncé rond par Android, ou imposé par l'admin. */
+    fun round(ctx: Context): Boolean {
+        val r = when (AppState.prefs.dmShape) {
+            "round" -> true
+            "rect" -> false
+            // Le modèle décide d'abord (la DM100 se déclare « ronde » à tort) ; autre appareil : Android
+            else -> when (model()) {
+                "DM80" -> true
+                "DM100" -> false
+                else -> Build.VERSION.SDK_INT >= 23 && ctx.resources.configuration.isScreenRound
+            }
+        }
+        lastRound = r
+        return r
+    }
+
+    /** Change quand l'admin envoie de nouvelles tailles (l'écran se redessine). */
+    val sizesTick = MutableStateFlow(0)
+
+    /** Valeurs de DÉPART des tailles de texte (en %), en dur dans l'app : s'appliquent dès
+     *  l'installation, tant qu'aucun réglage n'a encore été reçu de l'admin (dmSizes vide côté
+     *  Prefs) -- différentes selon la forme d'écran. Modifiables ensuite à tout moment par
+     *  l'admin (demande explicite de l'utilisateur, 11/11/2026). Mêmes valeurs que
+     *  DM_SIZE_DEFAULTS dans QRingAdmin/app.py : à garder synchronisées si l'un des deux change. */
+    private fun defaultSize(key: String): Int = if (lastRound)
+        mapOf("header" to 150, "title" to 200, "value" to 100, "unit" to 170, "status" to 100)[key] ?: 100   // DM80 (rond)
+    else
+        mapOf("header" to 208, "title" to 130, "value" to 97, "unit" to 170, "status" to 100)[key] ?: 100    // DM100 (rectangle)
+
+    /** Facteur de taille d'un texte : réglage reçu de l'admin si présent, sinon défaut selon la forme d'écran (de 50 % à 200 %). */
+    fun size(key: String): Float = try {
+        (org.json.JSONObject(AppState.prefs.dmSizes).optInt(key, defaultSize(key)) / 100f).coerceIn(0.5f, 2f)
+    } catch (_: Exception) { 1f }
+
+    /** Modèle affiché dans le bandeau. */
+    fun label(ctx: Context): String = model().ifEmpty { if (round(ctx)) "DM80" else "DM100" }
+}

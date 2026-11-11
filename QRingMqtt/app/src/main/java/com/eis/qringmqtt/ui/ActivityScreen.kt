@@ -57,7 +57,7 @@ fun ActivityScreen(isTv: Boolean) {
         BigButton(
             if (syncing != null) tr("act.syncing", syncing?.label) else tr("act.sync"),
             Modifier.fillMaxWidth(),
-            enabled = ring == RingConn.CONNECTED && syncing == null,
+            enabled = (ring == RingConn.CONNECTED || ring == RingConn.IDLE) && syncing == null,
             icon = Icons.Filled.Sync
         ) {
             listOf(Cmd.STEPS, Cmd.SLEEP, Cmd.SEDENTARY, Cmd.WORKOUTS).forEach {

@@ -3,6 +3,27 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// ---------------------------------------------------------------------------------------------
+// APK RHM V0.1 (montres DM100 / DM80) : identité FIXE dans l'APK (cahier des charges V0.1).
+// Le numéro de la gateway s'INCRÉMENTE À CHAQUE COMPILATION de la variante :
+//   1re compilation rhmDm100 → AND-DM100-0001, 2e → AND-DM100-0002 … (une APK = une montre)
+// Compteur gardé dans app/rhm_build_counter.properties (à versionner avec le code).
+// ---------------------------------------------------------------------------------------------
+def rhmCounterFile = file('rhm_build_counter.properties')
+def rhmCounters = new Properties()
+if (rhmCounterFile.exists()) rhmCounterFile.withInputStream { rhmCounters.load(it) }
+def rhmTasks = gradle.startParameter.taskNames.collect { it.toLowerCase() }
+def rhmNextId = { String model ->
+    int n = (rhmCounters.getProperty(model, '0') as int)
+    // +1 seulement quand on COMPILE cette variante (pas à la synchro Gradle d'Android Studio)
+    if (rhmTasks.any { (it.contains('assemble') || it.contains('bundle') || it.contains('install')) && it.contains('rhm' + model.toLowerCase()) }) {
+        n++
+        rhmCounters.setProperty(model, n.toString())
+        rhmCounterFile.withOutputStream { rhmCounters.store(it, 'Compteur des identites RHM : +1 a chaque compilation') }
+    }
+    return String.format('AND-%s-%04d', model, Math.max(n, 1))
+}
+
 android {
     namespace 'com.eis.qringmqtt'
     compileSdk 35
@@ -11,9 +32,43 @@ android {
         applicationId "com.eis.qringmqtt"
         minSdk 24
         targetSdk 34
-        versionCode 2
-        versionName "1.1.0"
+        versionCode 3
+        versionName "1.2.0"
         vectorDrawables { useSupportLibrary true }
+    }
+
+    // « classic » = app actuelle (TV, eis/colmi) ; « rhmDm100 » / « rhmDm80 » = APK RHM V0.1 (rhm/… seulement)
+    flavorDimensions 'cible'
+    productFlavors {
+        classic {
+            dimension 'cible'
+            buildConfigField 'boolean', 'RHM_ONLY', 'false'
+            buildConfigField 'String', 'RHM_CLIENT_CODE', '""'
+            buildConfigField 'String', 'RHM_SITE_CODE', '""'
+            buildConfigField 'String', 'RHM_GATEWAY_ID', '""'
+            buildConfigField 'String', 'RHM_DEVICE_MODEL', '""'
+        }
+        rhmDm100 {
+            dimension 'cible'
+            def gid = rhmNextId('DM100')
+            versionNameSuffix "-rhm-" + gid
+            // ---- IDENTITÉ (un seul endroit) ----
+            buildConfigField 'boolean', 'RHM_ONLY', 'true'
+            buildConfigField 'String', 'RHM_CLIENT_CODE', '"CSTOCK"'
+            buildConfigField 'String', 'RHM_SITE_CODE', '"SSTOCK"'
+            buildConfigField 'String', 'RHM_GATEWAY_ID', '"' + gid + '"'
+            buildConfigField 'String', 'RHM_DEVICE_MODEL', '"DM100"'
+        }
+        rhmDm80 {
+            dimension 'cible'
+            def gid = rhmNextId('DM80')
+            versionNameSuffix "-rhm-" + gid
+            buildConfigField 'boolean', 'RHM_ONLY', 'true'
+            buildConfigField 'String', 'RHM_CLIENT_CODE', '"CSTOCK"'
+            buildConfigField 'String', 'RHM_SITE_CODE', '"SSTOCK"'
+            buildConfigField 'String', 'RHM_GATEWAY_ID', '"' + gid + '"'
+            buildConfigField 'String', 'RHM_DEVICE_MODEL', '"DM80"'
+        }
     }
 
     buildTypes {

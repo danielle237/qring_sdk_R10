@@ -1,0 +1,251 @@
+package com.eis.qringmqtt.mqtt
+
+import android.os.SystemClock
+import com.eis.qringmqtt.BuildConfig
+import com.eis.qringmqtt.ble.RingManager
+import com.eis.qringmqtt.data.AppState
+import com.eis.qringmqtt.data.Cmd
+import com.eis.qringmqtt.data.Command
+import com.eis.qringmqtt.data.LogEntry
+import com.eis.qringmqtt.data.RingConn
+import com.eis.qringmqtt.data.Source
+import com.eis.qringmqtt.service.CommandProcessor
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * Trames MQTT RHM (CC du 10/11/2026), activées par l'admin (réglage « protocol » = « rhm ») :
+ *   rhm/{client}/{site}/{gateway}/status     {"gateway","status":"online|offline"} (retenu)
+ *   rhm/{client}/{site}/{gateway}/heartbeat  toutes les 30 s
+ *   rhm/{client}/{site}/{gateway}/presence   bague vue par advertising (aucun GATT)
+ *   rhm/{client}/{site}/{gateway}/cmd        reçu : {"request_id":1001,"mac":"…","measure":"hr"} / {"action":"cancel",…}
+ *   rhm/{client}/{site}/{gateway}/result     SUCCESS / BUSY / ERROR / CANCELLED (+ samples, resources_released)
+ * {gateway} = nom de la gateway (À propos / Réglages). Le pont serveur rhm_bridge.py traduit vers eis/colmi.
+ * En mode RHM, les mesures reçues sur eis/colmi sont ignorées (elles arrivent par rhm/…/cmd, sans doublon)
+ * et les résultats de mesure ne partent QUE sur rhm/…/result.
+ */
+object RhmProtocol {
+    /** Début de fonctionnement de la gateway (service démarré) : base de « uptime_s ». */
+    private var startMs = SystemClock.elapsedRealtime()
+    fun markStart() { startMs = SystemClock.elapsedRealtime() }
+    /** request_id RHM des commandes en cours, par reqId interne (« rhm-1001 »). */
+    private val MEASURE_SUBS = setOf("hr", "spo2", "temp", "bp", "hrv", "stress", "all", "battery", "steps", "sleep")
+
+    /** APK RHM V0.1 : toujours ; variante classic : si l'admin a choisi « trames RHM ». */
+    val enabled: Boolean get() = RhmIdentity.RHM_ONLY || AppState.prefs.protocol == "rhm"
+
+    /** Affecté à un client/site (par provisioning set_site, ou saisi dans l'admin) ? Tant que non affecté,
+     *  aucune donnée patient n'est publiée sur rhm/{client}/{site}/{gateway}/... (doc provisioning 10/11/2026). */
+    // V0.1 : identité fixe CSTOCK/SSTOCK (build.gradle) -> toujours affecté, pas de provisioning
+    val assigned: Boolean get() = RhmIdentity.RHM_ONLY || (AppState.prefs.rhmClient.isNotBlank() && AppState.prefs.rhmSite.isNotBlank())
+
+    /** {gateway} = nom de la gateway configuré (À propos / Réglages) -- confirmé par le contrat Admin
+     *  réel du 10/11/2026 : c'est le suffixe du topic lu aujourd'hui, pas un gateway_id/AND-<device_id>
+     *  (ce schéma faisait partie des propositions de provisioning retirées, jamais implémentées côté Admin). */
+    fun base(): String {
+        if (RhmIdentity.RHM_ONLY) return RhmIdentity.BASE
+        val p = AppState.prefs
+        return "rhm/${NetInfo.topicSafe(p.rhmClient)}/${NetInfo.topicSafe(p.rhmSite)}/${NetInfo.topicSafe(p.gatewayName)}"
+    }
+
+    private fun gw() = if (RhmIdentity.RHM_ONLY) RhmIdentity.GATEWAY_ID else NetInfo.topicSafe(AppState.prefs.gatewayName)
+
+    fun statusJson(online: Boolean): JSONObject =
+        JSONObject().put("gateway", gw()).put("status", if (online) "online" else "offline")
+
+    /** Forme confirmée réellement lue par l'Admin (contrat du 10/11/2026) : ne pas ajouter de champs
+     *  de provisioning (device_id/session_id/…) -- ce mécanisme n'existe pas côté serveur pour Android
+     *  et "protocol"/"gatewayType" seuls ne changent pas la classification Linux/Android du handler. */
+    fun heartbeatJson(): JSONObject {
+        // V0.1 : exactement les champs du cahier des charges (aucun état simulé)
+        if (RhmIdentity.RHM_ONLY) return JSONObject()
+            .put("gateway", RhmIdentity.GATEWAY_ID)
+            .put("gatewayType", RhmIdentity.GATEWAY_TYPE)
+            .put("device_model", RhmIdentity.DEVICE_MODEL)
+            .put("uptime_s", (SystemClock.elapsedRealtime() - startMs) / 1000)
+        val ring = AppState.ring.value
+        return JSONObject()
+            .put("gateway", gw())
+            .put("uptime_s", (SystemClock.elapsedRealtime() - startMs) / 1000)
+            .put("device_model", com.eis.qringmqtt.dm.DmMode.model().ifBlank { android.os.Build.MODEL ?: "android" })
+            .put("app_version", BuildConfig.VERSION_NAME)
+            .put("protocol", "rhm-android-v1")
+            .put("ring_mac", AppState.prefs.ringMac ?: JSONObject.NULL)
+            .put("ble", when {
+                AppState.active.value != null -> "measuring"
+                ring == RingConn.BLUETOOTH_OFF -> "off"
+                else -> "advertising"
+            })
+            .put("busy", AppState.active.value != null || AppState.syncing.value != null)
+            .put("resources_released", RingManager.lastReleased ?: JSONObject.NULL)
+            .put("ready", !RingManager.releaseFault)
+    }
+
+    /** Présence de la bague affectée (advertising uniquement ; RSSI non fourni par la recherche ciblée). */
+    /** Format confirmé réellement lu par l'Admin (contrat du 10/11/2026) : clé top-level "ring_0",
+     *  PAS {"gateway":...,"rings":{MAC:...}} -- divergence déjà documentée au CC du 10/11, §6.5, et
+     *  confirmée depuis par lecture du parseur actif. Une seule bague suivie par gateway aujourd'hui. */
+    fun presenceJson(): JSONObject {
+        // V0.1 : bagues réellement vues en advertising (format ring_0, à confirmer par EIS)
+        if (RhmIdentity.RHM_ONLY) return PresenceTracker.json(AppState.prefs.ringMac)
+        val o = JSONObject()
+        val mac = AppState.prefs.ringMac
+        if (mac != null) {
+            val st = AppState.ring.value
+            val seen = st == RingConn.IDLE || st == RingConn.CONNECTED
+            val ago = RingManager.lastSeenAgoMs()
+            // "packets" n'est pas compté par le code actuel : omis plutôt qu'inventé.
+            o.put("ring_0", JSONObject()
+                .put("mac", mac.uppercase())
+                .put("seen", seen)
+                .put("rssi", com.eis.qringmqtt.ble.RssiReader.fresh() ?: JSONObject.NULL)
+                .put("last_seen_ms", ago ?: JSONObject.NULL))
+        }
+        return o
+    }
+
+    // ------------------------------------------------------------------ cmd reçue
+    fun onCmd(payload: String) {
+        val o = try { JSONObject(payload) } catch (_: Exception) { return }
+        if (RhmIdentity.RHM_ONLY) { onCmdV01(o); return }
+        val rid = o.optLong("request_id", -1L)
+        val mac = RingManager.normalizeMac(o.optString("mac"))
+        val measure = o.optString("measure")
+        if (o.optString("action") == "cancel") {
+            AppState.log(LogEntry.Kind.IN, "rhm", "annulation request_id $rid")
+            CommandProcessor.cancelCurrent()
+            result(rid, mac, measure, "CANCELLED", null, reason = "cancelled")
+            return
+        }
+        val mine = AppState.prefs.ringMac
+        if (rid < 0 || measure.isBlank()) { result(rid, mac, measure, "ERROR", null, reason = "bad_request"); return }
+        if (mine == null || !mine.equals(mac, ignoreCase = true)) {
+            result(rid, mac, measure, "ERROR", null, reason = "ring_not_assigned"); return
+        }
+        val cmd = Cmd.from(measure)
+        if (cmd == null || !(cmd.measure || cmd in setOf(Cmd.BATTERY, Cmd.STEPS, Cmd.SLEEP))) {
+            result(rid, mac, measure, "ERROR", null, reason = "not_supported"); return
+        }
+        // Accusé de réception (doc mesures §11.5, "ACCEPTED") : avant tout accès BLE, non terminal.
+        result(rid, mac, measure, "ACCEPTED", null, terminal = false)
+        CommandProcessor.submit(Command(cmd, "rhm-$rid", Source.MQTT))
+    }
+
+    /** V0.1 : {"request_id":104201,"mac":"…","measure":"hr"} — battery, hr, spo2, hrv, temp. */
+    private val V01_MEASURES = setOf("battery", "hr", "spo2", "hrv", "temp")
+    private fun onCmdV01(o: JSONObject) {
+        val ridAny = o.opt("request_id")
+        val rid = if (ridAny is Number) ridAny.toLong() else -1L       // request_id ENTIER obligatoire
+        val macRaw = o.optString("mac")
+        val mac = RingManager.normalizeMac(macRaw)
+        val measure = o.optString("measure").trim()
+        AppState.log(LogEntry.Kind.IN, "rhm", "cmd request_id=$rid mac=$mac measure=$measure")
+        if (rid < 0 || mac.count { it.isLetterOrDigit() } != 12 || measure.isBlank()) {
+            result(rid, mac, measure, "ERROR", null, reason = "bad_request"); return
+        }
+        if (measure !in V01_MEASURES) { result(rid, mac, measure, "ERROR", null, reason = "not_supported"); return }
+        // Une seule opération à la fois : BUSY, sans ouvrir GATT
+        if (AppState.active.value != null || AppState.syncing.value != null || AppState.queued.value.isNotEmpty()) {
+            com.eis.qringmqtt.ble.GattLog.step("BUSY", "$measure · $rid")
+            result(rid, mac, measure, "BUSY", null); return
+        }
+        // Bague demandée par le serveur : elle devient la bague suivie (aucune connexion ici)
+        if (!mac.equals(AppState.prefs.ringMac, ignoreCase = true)) {
+            RingManager.bind(mac, PresenceTracker.nameOf(mac) ?: mac)
+        }
+        val cmd = Cmd.from(measure) ?: run { result(rid, mac, measure, "ERROR", null, reason = "not_supported"); return }
+        CommandProcessor.submit(Command(cmd, "rhm-$rid", Source.MQTT))
+    }
+
+    // ------------------------------------------------------------------ résultats
+    /** Appelé par MqttManager.publish : en mode RHM, une trame de mesure eis/colmi devient un « result » RHM. */
+    /** Résultat de mesure à envoyer en « result » RHM ? V0.1 : seulement les commandes venues de rhm/…/cmd
+     *  (reqId « rhm-… ») ; celles venues d'eis/colmi repartent sur eis/colmi comme avant. */
+    fun interceptsEis(sub: String, j: JSONObject): Boolean = enabled && sub in MEASURE_SUBS &&
+        (!RhmIdentity.RHM_ONLY || j.optString("reqId").startsWith("rhm-"))
+
+    fun fromEis(sub: String, j: JSONObject) {
+        val st = j.optString("status")
+        val rid = j.optString("reqId").removePrefix("rhm-").toLongOrNull() ?: 0L   // 0 = mesure locale (écran)
+        val mac = j.optString("ringMac").ifBlank { AppState.prefs.ringMac ?: "" }
+        if (st == "measuring") {
+            // Progression réelle (doc mesures §11.5) : recherche/connexion de la bague ou mesure en
+            // cours -- publiée nativement (pas de pont serveur en mode RHM natif). Non terminal.
+            val phase = if (j.optString("phase") == "connecting") "CONNECTING" else "MEASURING"
+            result(rid, mac, sub, phase, null, terminal = false)
+            return
+        }
+        if (st == "ok") {
+            val r = JSONObject()
+            when (sub) {
+                "all" -> {
+                    val v = JSONObject()
+                    for (k in listOf("hr", "spo2", "temp", "hrv", "stress", "sbp", "dbp")) if (j.has(k)) v.put(k, j.get(k))
+                    r.put("values", v)
+                }
+                "bp" -> r.put("sbp", j.opt("sbp")).put("dbp", j.opt("dbp")).put("unit", "mmHg")
+                else -> {
+                    if (j.has("value")) r.put("value", j.get("value"))
+                    if (j.has("unit")) r.put("unit", j.get("unit"))
+                    val samples = j.optJSONArray("values")
+                    if (samples != null) r.put("samples", samples)
+                    for (k in listOf("charging", "steps", "distance", "calories", "nights")) if (j.has(k)) r.put(k, j.get(k))
+                    // doc mesures §11.6 : quality/valeur/échantillons valides -- dérivés de ce que le
+                    // moteur a réellement renvoyé (pas de notion de résultat "PROVISIONAL" exposée par
+                    // Measurer aujourd'hui : soit le moteur a réussi, soit il a échoué).
+                    r.put("result_quality", "COMPLETE")
+                    if (j.has("value")) r.put("result_value", j.get("value"))
+                    r.put("valid_samples", samples?.length() ?: if (j.has("value")) 1 else 0)
+                }
+            }
+            result(rid, mac, sub, "SUCCESS", r, released = j.opt("resourcesReleased"))
+        } else {
+            val err = j.optString("error")
+            val status = when (err) {
+                "busy" -> "BUSY"; "cancelled" -> "CANCELLED"; "timeout" -> "TIMEOUT"
+                "release_unknown" -> "NOT_READY"; else -> "ERROR"
+            }
+            val extra = JSONObject().put("result_quality", "NONE").put("result_value", JSONObject.NULL).put("valid_samples", 0)
+            result(rid, mac, sub, status, extra, reason = err.ifBlank { "measure_failed" }, released = j.opt("resourcesReleased"))
+        }
+    }
+
+    private fun result(rid: Long, mac: String, measure: String, status: String, extra: JSONObject?,
+                       reason: String? = null, released: Any? = null, terminal: Boolean = true) {
+        if (RhmIdentity.RHM_ONLY) {
+            // V0.1 : request_id, gateway, mac, measure, status, value, unit (+ reason si échec). Rien d'inventé.
+            val o = JSONObject()
+                .put("request_id", if (rid >= 0) rid else JSONObject.NULL)
+                .put("gateway", gw())
+                .put("mac", mac.ifBlank { AppState.prefs.ringMac ?: "" }.uppercase())
+                .put("measure", measure)
+                .put("status", status)
+            if (status == "SUCCESS" && extra != null) {
+                o.put("value", extra.opt("value") ?: JSONObject.NULL)
+                o.put("unit", extra.opt("unit") ?: JSONObject.NULL)
+            } else {
+                o.put("value", JSONObject.NULL)
+                if (reason != null) o.put("reason", reason)
+            }
+            CommandProcessor.mqtt?.publishRhm("result", o, retained = false, qos = 1)
+            return
+        }
+        val o = JSONObject()
+            .put("request_id", if (rid >= 0) rid else JSONObject.NULL)
+            .put("gateway", gw())
+            .put("mac", mac.ifBlank { AppState.prefs.ringMac ?: "" })
+            .put("measure", measure)
+            .put("status", status)
+            .put("terminal", terminal)
+            .put("ts", System.currentTimeMillis() / 1000)
+        if (status != "SUCCESS" && terminal) o.put("value", JSONObject.NULL)
+        if (reason != null) o.put("reason", reason)
+        val rel = released ?: RingManager.lastReleased
+        o.put("resources_released", rel ?: JSONObject.NULL)
+        extra?.keys()?.forEach { k -> o.put(k, extra.get(k)) }
+        CommandProcessor.mqtt?.publishRhm("result", o, retained = false, qos = 1)
+    }
+
+    @Suppress("unused")
+    private fun arr(vararg v: Any) = JSONArray(v.toList())
+}

@@ -11,7 +11,13 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_LOCKED_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON",
-            Intent.ACTION_MY_PACKAGE_REPLACED -> RingService.start(context.applicationContext)
+            "com.htc.intent.action.QUICKBOOT_POWERON",
+            Intent.ACTION_USER_PRESENT,
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                // Démarrage de la montre / TV, mise à jour, déverrouillage : service lancé + réveil de secours
+                if (!RingService.running) RingService.start(context.applicationContext)
+                KeepAlive.schedule(context)
+            }
         }
     }
 }

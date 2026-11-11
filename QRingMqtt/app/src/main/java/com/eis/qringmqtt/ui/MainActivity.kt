@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -60,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
@@ -164,15 +166,52 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppRoot(isTv: Boolean) {
+    // Montres DM100 / DM80 : écran PASSIF uniquement (4 mesures, aucune action locale).
+    // Appui long sur le logo → réglages techniques (PIN si activé), retour à l'écran DM.
+    if (com.eis.qringmqtt.dm.DmMode.active) {
+        // Appui long sur la 1ʳᵉ ligne → menu : Bague active / Réglages (PIN si activé par l'admin)
+        var page by remember { mutableStateOf("") }      // "" = écran DM, "menu", "pick", "settings"
+        BackHandler(enabled = page.isNotEmpty()) { page = "" }
+        when (page) {
+            "pick" -> PinGate(tr("pick.title")) { RingPickerScreen(isTv) { page = "" } }
+            "settings" -> PinGate(tr("set.title")) { SettingsScreen(isTv) { } }
+            else -> Box(Modifier.fillMaxSize()) {
+                com.eis.qringmqtt.dm.DmScreen(onTech = { page = "menu" }, onNoRing = { page = "noring" })
+                // Popup de mesure : connexion → mesure → déconnexion → résultat (désactivable dans l'admin)
+                com.eis.qringmqtt.dm.DmMeasurePopup()
+                if (page == "noring") com.eis.qringmqtt.dm.DmNoRingPopup(onPick = { page = "pick" }, onClose = { page = "" })
+            }
+        }
+        if (page == "menu") {
+            Dialog(onDismissRequest = { page = "" }) {
+                Column(
+                    Modifier.background(C.surface, RoundedCornerShape(18.dp)).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // APK RHM V0.1 : la bague est choisie par le serveur (commande) → pas de « Bague active »
+                    if (!com.eis.qringmqtt.mqtt.RhmIdentity.RHM_ONLY)
+                        BigButton("${tr("pick.button")} : ${RingManager.modelLabel().ifBlank { tr("pick.none") }}",
+                            Modifier.fillMaxWidth(), icon = Icons.Filled.SwapHoriz) { page = "pick" }
+                    BigButton(tr("tab.settings"), Modifier.fillMaxWidth(), color = C.card2, icon = Icons.Filled.Settings) { page = "settings" }
+                    BigButton(tr("pick.no"), Modifier.fillMaxWidth(), color = C.card) { page = "" }
+                }
+            }
+        }
+        return
+    }
     var tab by remember { mutableStateOf(Tab.HOME) }
     var scan by remember { mutableStateOf(false) }
+    // « Bague active » : choisir la bague utilisée par cette gateway
+    var pick by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = scan || tab != Tab.HOME) {
-        if (scan) scan = false else tab = Tab.HOME
+    BackHandler(enabled = scan || pick || tab != Tab.HOME) {
+        if (pick) pick = false else if (scan) scan = false else tab = Tab.HOME
     }
 
     val content: @Composable () -> Unit = {
-        if (scan) {
+        if (pick) {
+            PinGate(tr("pick.title")) { RingPickerScreen(isTv) { pick = false } }
+        } else if (scan) {
             ScanScreen(isTv) { scan = false }
         } else when (tab) {
             Tab.HOME -> HomeScreen(isTv)
@@ -187,14 +226,14 @@ fun AppRoot(isTv: Boolean) {
     Box(Modifier.fillMaxSize()) {
         if (isTv) {
             Row(Modifier.fillMaxSize()) {
-                SideNav(tab, onStatus = { tab = Tab.HOME; scan = false; StatusCheck.start() }) { tab = it; scan = false }
+                SideNav(tab, pick, onPick = { pick = true; scan = false }, onStatus = { tab = Tab.HOME; scan = false; pick = false; StatusCheck.start() }) { tab = it; scan = false; pick = false }
                 Box(Modifier.weight(1f).fillMaxHeight()) { content() }
             }
         } else {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                TopTitle(if (scan) tr("tab.scan") else tab.label)
+                TopTitle(if (pick) tr("pick.title") else if (scan) tr("tab.scan") else tab.label) { pick = true; scan = false }
                 Box(Modifier.weight(1f).fillMaxWidth()) { content() }
-                BottomNav(tab) { tab = it; scan = false }
+                BottomNav(tab) { tab = it; scan = false; pick = false }
             }
         }
         if (isTv) {
@@ -207,7 +246,7 @@ fun AppRoot(isTv: Boolean) {
 }
 
 @Composable
-private fun TopTitle(title: String) {
+private fun TopTitle(title: String, onPick: () -> Unit) {
     val broker by AppState.broker.collectAsState()
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
@@ -216,6 +255,10 @@ private fun TopTitle(title: String) {
         Image(painterResource(R.drawable.rhm_logo), null, Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)))
         Spacer(Modifier.width(10.dp))
         Text(title, color = C.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        // Bague active (toucher = choisir une autre bague)
+        Box(Modifier.focusClick(RoundedCornerShape(50), onClick = onPick).padding(6.dp)) {
+            Icon(Icons.Filled.SwapHoriz, tr("pick.button"), tint = C.accent, modifier = Modifier.size(22.dp))
+        }
         Dot(brokerColor(broker), 7.dp)
         Spacer(Modifier.width(4.dp))
         Text("MQTT", color = C.muted, fontSize = 11.sp)
@@ -239,7 +282,7 @@ private fun BottomNav(tab: Tab, onSelect: (Tab) -> Unit) {
             ) {
                 Box {
                     Icon(t.icon, t.label, tint = if (sel) C.accent else C.muted, modifier = Modifier.size(22.dp))
-                    if (t.locked) Icon(
+                    if (t.locked && AppState.prefs.pinEnabled) Icon(
                         Icons.Filled.Lock, null, tint = C.muted,
                         modifier = Modifier.size(10.dp).align(Alignment.BottomEnd)
                     )
@@ -251,7 +294,7 @@ private fun BottomNav(tab: Tab, onSelect: (Tab) -> Unit) {
 }
 
 @Composable
-private fun SideNav(tab: Tab, onStatus: () -> Unit, onSelect: (Tab) -> Unit) {
+private fun SideNav(tab: Tab, picking: Boolean, onPick: () -> Unit, onStatus: () -> Unit, onSelect: (Tab) -> Unit) {
     val ring by AppState.ring.collectAsState()
     val broker by AppState.broker.collectAsState()
     val info by AppState.info.collectAsState()
@@ -273,10 +316,14 @@ private fun SideNav(tab: Tab, onStatus: () -> Unit, onSelect: (Tab) -> Unit) {
             Text("GATEWAY RHM", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
         Tab.values().forEach { t ->
-            NavRow(t.icon, t.label, t == tab, t.locked) { onSelect(t) }
+            NavRow(t.icon, t.label, t == tab && !picking, t.locked) { onSelect(t) }
             // « État bague » juste après Accueil : lance la vérification (clignote quand c'est possible)
             if (t == Tab.HOME) StatusNavRow(ring, st, cooldown, now, onStatus)
         }
+        // « Bague active » : donne la bague utilisée et permet d'en choisir une autre
+        val activeName = info.name.ifBlank { AppState.prefs.ringMac ?: "" }
+        NavRow(Icons.Filled.SwapHoriz, if (activeName.isBlank()) tr("pick.none") else "${tr("pick.button")} : ${RingManager.modelLabel().ifBlank { activeName }}",
+            picking, true, onClick = onPick)
         Spacer(Modifier.weight(1f))
         // Carte « Bague » : portée / retirée / hors portée / non vérifiée
         Panel(Modifier.fillMaxWidth(), padding = 10.dp) {
@@ -337,7 +384,8 @@ private fun NavRow(icon: ImageVector, label: String, selected: Boolean, locked: 
         Icon(icon, null, tint = if (selected) C.accent else if (icon == Icons.Filled.Bluetooth) Color(0xFF4A8CFF) else C.muted, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Text(label, color = if (selected) C.text else C.muted, fontSize = 15.sp, modifier = Modifier.weight(1f))
-        if (locked) Icon(Icons.Filled.Lock, null, tint = C.muted, modifier = Modifier.size(14.dp))
+        // Cadenas seulement si le code PIN est activé (réglage de l'admin)
+        if (locked && AppState.prefs.pinEnabled) Icon(Icons.Filled.Lock, null, tint = C.muted, modifier = Modifier.size(14.dp))
     }
 }
 
@@ -522,9 +570,15 @@ private fun MeasureOverlay() {
             )
             RingProgress(elapsed / a.cmd.durationSec.toFloat(), color, Modifier.size(220.dp), 14.dp) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(a.liveText ?: a.cmd.label, color = color, fontSize = if (a.liveText != null) 44.sp else 26.sp,
-                        fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
-                    Text("$elapsed s / ${a.cmd.durationSec} s", color = C.muted, fontSize = 14.sp)
+                    val txt = a.liveText ?: a.cmd.label
+                    // Texte long (« Connexion à la bague R10… ») : plus petit, reste dans le cercle
+                    val size = when { a.liveText == null -> 26.sp; txt.length <= 8 -> 44.sp; txt.length <= 14 -> 26.sp; else -> 17.sp }
+                    Text(txt, color = color, fontSize = size, lineHeight = size * 1.15f,
+                        fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, maxLines = 3,
+                        modifier = Modifier.padding(horizontal = 22.dp))
+                    // Pendant la connexion à la bague : temps écoulé seul (la mesure n'a pas commencé)
+                    Text(if (RingManager.searchingForMeasure) "$elapsed s" else "$elapsed s / ${a.cmd.durationSec} s",
+                        color = C.muted, fontSize = 14.sp)
                 }
             }
             Text(tr("tv.hold"), color = C.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -553,6 +607,7 @@ private fun MeasureOverlay() {
 private fun ResultOverlay() {
     val res by AppState.lastResult.collectAsState()
     val active by AppState.active.collectAsState()
+    val ringNow by AppState.ring.collectAsState()
     var closedAt by remember { mutableLongStateOf(0L) }
     val check by StatusCheck.state.collectAsState()
     val r = res ?: return
@@ -572,6 +627,7 @@ private fun ResultOverlay() {
         else -> m?.color ?: C.ok
     }
     val focus = remember { FocusRequester() }
+    val closeFocus = remember { FocusRequester() }
     LaunchedEffect(r.atMs) { delay(100); try { focus.requestFocus() } catch (_: Exception) {} }
 
     Box(Modifier.fillMaxSize().background(C.bg.copy(alpha = 0.97f)), contentAlignment = Alignment.Center) {
@@ -598,9 +654,17 @@ private fun ResultOverlay() {
                     Text(tr("home.wear_text"), color = C.text, fontSize = 22.sp, textAlign = TextAlign.Center)
                 }
             }
+            // Fin de mesure : résultat envoyé + bague déconnectée (connexion à la demande)
+            if (r.ok) Text(tr("meas.sent"), color = C.ok, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            if (RingManager.onDemand && ringNow != RingConn.CONNECTED && AppState.prefs.ringMac != null) {
+                Text("🔌 " + tr("ring.model_disconnected", RingManager.modelLabel()), color = C.muted,
+                    fontSize = 20.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Focus télécommande gardé dans la popup : ← → passe de « Relancer » à « Fermer »
                 Box(
                     Modifier.focusRequester(focus)
+                        .focusProperties { right = closeFocus; left = focus; up = focus; down = focus }
                         .focusClick(RoundedCornerShape(14.dp)) {
                             closedAt = r.atMs
                             CommandProcessor.submit(Command(r.cmd, null, Source.MANUAL))
@@ -608,7 +672,9 @@ private fun ResultOverlay() {
                         .background(C.accent).padding(horizontal = 28.dp, vertical = 12.dp)
                 ) { Text(tr("btn.retry"), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
                 Box(
-                    Modifier.focusClick(RoundedCornerShape(14.dp)) { closedAt = r.atMs }
+                    Modifier.focusRequester(closeFocus)
+                        .focusProperties { left = focus; right = closeFocus; up = closeFocus; down = closeFocus }
+                        .focusClick(RoundedCornerShape(14.dp)) { closedAt = r.atMs }
                         .background(C.card).padding(horizontal = 28.dp, vertical = 12.dp)
                 ) { Text(tr("btn.close"), color = C.text, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             }

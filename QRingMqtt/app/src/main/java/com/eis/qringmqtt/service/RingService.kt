@@ -22,6 +22,7 @@ import com.eis.qringmqtt.data.AppState
 import com.eis.qringmqtt.data.BrokerConn
 import com.eis.qringmqtt.data.Cmd
 import com.eis.qringmqtt.data.Command
+import com.eis.qringmqtt.data.LogEntry
 import com.eis.qringmqtt.data.Source
 import com.eis.qringmqtt.data.RingConn
 import com.eis.qringmqtt.data.tr
@@ -63,6 +64,9 @@ class RingService : Service() {
             return
         }
         acquireWakeLock()
+        com.eis.qringmqtt.mqtt.RhmProtocol.markStart()     // base de « uptime_s » du heartbeat RHM
+        // Relance automatique si Android ferme le service (montres Android 7 / 8)
+        KeepAlive.schedule(this)
 
         RingManager.init(application)
         CommandProcessor.start()
@@ -76,6 +80,20 @@ class RingService : Service() {
         mqtt = m
         CommandProcessor.mqtt = m
         m.start()
+        // Wi-Fi toujours actif (TV) ou économie (montre) : réglé depuis l'admin, gardé dans l'app
+        WifiSaver.init(applicationContext, m)
+        // JALON 0 : aucune connexion GATT sans commande de mesure n'est autorisée (CC §1.4, règle
+        // bloquante, sans exception implicite) -- donc le mode « permanente » ne doit plus pouvoir
+        // laisser une gateway Android se connecter toute seule au démarrage. Un réglage « permanente »
+        // resté en mémoire d'un ancien test (avant l'existence du mode à la demande) est corrigé ici à
+        // chaque démarrage. L'admin garde la main pour repasser en permanente plus tard via Réglages à
+        // distance (rhm_admin_test/.../config) : ça n'est forcé qu'au démarrage, pas bloqué après coup.
+        if (AppState.prefs.gattMode != "ondemand") {
+            AppState.log(LogEntry.Kind.INFO, "bague",
+                "Connexion « permanente » trouvée au démarrage -- repassée à la demande (JALON 0)")
+            AppState.prefs.gattMode = "ondemand"
+        }
+        // JALON 0 : en mode à la demande, connect() ne connecte pas (présence par advertising seulement)
         RingManager.connect()
 
         // Sommeil : synchronisation automatique une fois par jour (à partir de 8 h), bague connectée
@@ -85,14 +103,48 @@ class RingService : Service() {
             while (isActive) {
                 val cal = java.util.Calendar.getInstance()
                 val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(cal.time)
-                if (cal.get(java.util.Calendar.HOUR_OF_DAY) >= 8 && AppState.prefs.lastSleepSync != today &&
-                    AppState.ring.value == RingConn.CONNECTED && AppState.active.value == null &&
+                // JALON 0 : pas de synchro automatique en mode à la demande (aucun GATT sans commande)
+                if (!RingManager.onDemand && cal.get(java.util.Calendar.HOUR_OF_DAY) >= 8 && AppState.prefs.lastSleepSync != today &&
+                    (AppState.ring.value == RingConn.CONNECTED || AppState.ring.value == RingConn.IDLE) &&
+                    AppState.active.value == null &&
                     AppState.syncing.value == null
                 ) {
                     AppState.prefs.lastSleepSync = today
                     CommandProcessor.submit(Command(Cmd.SLEEP, null, Source.AUTO))
                 }
                 delay(10 * 60_000L)
+            }
+        }
+
+        // Trames RHM : heartbeat + présence (advertising) toutes les 30 s -- seulement une fois
+        // affecté (client_code/site_code configurés) : pas de donnée patient avant.
+        scope.launch {
+            delay(20_000)
+            while (isActive) {
+                android.util.Log.i("QRingMqtt", "RHM boucle heartbeat : connecté=${m.isConnected()} enabled=${com.eis.qringmqtt.mqtt.RhmProtocol.enabled} assigned=${com.eis.qringmqtt.mqtt.RhmProtocol.assigned}")
+                if (m.isConnected() && com.eis.qringmqtt.mqtt.RhmProtocol.enabled && com.eis.qringmqtt.mqtt.RhmProtocol.assigned) {
+                    m.publishRhm("heartbeat", com.eis.qringmqtt.mqtt.RhmProtocol.heartbeatJson(), retained = false, qos = 0)
+                    m.publishRhm("presence", com.eis.qringmqtt.mqtt.RhmProtocol.presenceJson(), retained = false, qos = 0)
+                }
+                delay(if (com.eis.qringmqtt.mqtt.RhmIdentity.RHM_ONLY) 22_000 else 30_000)   // ≈ 30 s avec le scan
+            }
+        }
+
+        // Fenêtre de scan advertising (RHM V0.1, aucune connexion) : seulement pour l'APK RHM
+        scope.launch {
+            if (!com.eis.qringmqtt.mqtt.RhmIdentity.RHM_ONLY) return@launch
+            while (isActive) {
+                // APK RHM V0.1 : fenêtre de scan advertising (8 s, aucune connexion) avant la présence,
+                // seulement si aucune mesure / connexion n'est en cours
+                if (com.eis.qringmqtt.mqtt.RhmIdentity.RHM_ONLY && AppState.active.value == null &&
+                    AppState.syncing.value == null && AppState.ring.value != RingConn.CONNECTING &&
+                    AppState.ring.value != RingConn.CONNECTED && !AppState.scanning.value) {
+                    com.eis.qringmqtt.mqtt.PresenceTracker.newWindow()
+                    RingManager.startScan()
+                    delay(8_000)
+                    RingManager.stopScan()
+                }
+                delay(2_000)
             }
         }
 
@@ -159,12 +211,14 @@ class RingService : Service() {
         mqtt?.stop()
         scope.cancel()
         try { wakeLock?.release() } catch (_: Exception) {}
-        try { wifiLock?.release() } catch (_: Exception) {}
+        WifiSaver.shutdown()
+        KeepAlive.restartSoon(applicationContext)
         super.onDestroy()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // L'utilisateur a balayé l'app : le service continue
+        // L'utilisateur a balayé l'app : le service continue (relancé s'il a été tué avec)
+        KeepAlive.restartSoon(applicationContext)
         super.onTaskRemoved(rootIntent)
     }
 
@@ -201,8 +255,10 @@ class RingService : Service() {
     }
 
     private fun buildText(r: RingConn, b: BrokerConn, battery: Int?, measuring: String?): String {
+        val model = RingManager.modelLabel()
         val ring = when (r) {
-            RingConn.CONNECTED -> tr("n.ring_ok") + (battery?.let { " · $it %" } ?: "")
+            RingConn.CONNECTED -> tr("ring.model_connected", model) + (battery?.let { " · $it %" } ?: "")
+            RingConn.IDLE -> tr("ring.model_disconnected", model) + (battery?.let { " · $it %" } ?: "")
             RingConn.DISCONNECTED -> tr("err.ring_disconnected")
             else -> r.label
         }
@@ -238,16 +294,7 @@ class RingService : Service() {
             }
         } catch (_: Exception) {
         }
-        // Wi-Fi gardé actif en veille (sinon la TV le ralentit / coupe : MQTT décroche)
-        try {
-            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            @Suppress("DEPRECATION")
-            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "qring:wifi").apply {
-                setReferenceCounted(false)
-                acquire()
-            }
-        } catch (_: Exception) {
-        }
+        // Wi-Fi : géré par WifiSaver (WifiLock en mode « toujours actif », veille en mode « éco »)
     }
 
     companion object {

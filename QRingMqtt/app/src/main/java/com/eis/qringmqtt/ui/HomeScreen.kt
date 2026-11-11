@@ -156,6 +156,8 @@ fun HomeScreen(isTv: Boolean) {
     LaunchedEffect(Unit) { while (true) { now.longValue = System.currentTimeMillis(); delay(1000) } }
 
     val connected = ring == RingConn.CONNECTED
+    // Mesure possible même bague hors portée : l'app la cherche et s'y connecte avant de mesurer
+    val canMeasure = ring != RingConn.NO_RING && ring != RingConn.BLUETOOTH_OFF
     val visible = METRICS.filter { m ->
         !(m.cmd.measure && info.supportsKnown && m.key !in info.supports) &&
             // TV : la batterie est dans le bandeau du haut ; Entraînements retiré
@@ -188,7 +190,7 @@ fun HomeScreen(isTv: Boolean) {
             syncing = syncing == m.cmd,
             queued = m.cmd in queued,
             error = err?.message,
-            enabled = connected,
+            enabled = canMeasure,
             nowMs = now.longValue,
             modifier = mod,
             compact = compact,
@@ -199,7 +201,7 @@ fun HomeScreen(isTv: Boolean) {
         BigButton(
             if (active?.cmd == Cmd.ALL) tr("home.all_running") else tr("m.all"),
             mod,
-            enabled = connected && active == null,
+            enabled = canMeasure && active == null,
             icon = Icons.Filled.PlayArrow
         ) { CommandProcessor.submit(Command(Cmd.ALL, null, Source.MANUAL)) }
     }

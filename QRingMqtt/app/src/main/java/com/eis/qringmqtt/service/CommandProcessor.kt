@@ -78,7 +78,7 @@ object CommandProcessor {
                 key = o.optString("cmd", o.optString("type", ""))
                 reqId = o.optString("reqId").ifBlank { null }
                 day = o.optInt("day", 0).coerceIn(0, 6)
-                arg = listOf("mac", "value", "lang").map { o.optString(it) }.firstOrNull { it.isNotBlank() }
+                arg = listOf("mac", "value", "lang", "pinHash").map { o.optString(it) }.firstOrNull { it.isNotBlank() }
             } else {
                 // "lang ar" ou "bind C4:A1:…" acceptés aussi en texte
                 val parts = text.trim('"').split(' ', limit = 2)
@@ -91,6 +91,12 @@ object CommandProcessor {
         val cmd = Cmd.from(key)
         if (cmd == null) {
             publishError("cmd", Command(Cmd.PING, reqId, Source.MQTT, viaGateway = viaGateway), Err.UNKNOWN_COMMAND, extra = key)
+            return
+        }
+        // Mode RHM : les mesures arrivent par rhm/…/cmd (pont serveur) ; celles d'eis/colmi sont ignorées (pas de doublon)
+        if (com.eis.qringmqtt.mqtt.RhmProtocol.enabled && !com.eis.qringmqtt.mqtt.RhmIdentity.RHM_ONLY && !viaGateway &&
+            (cmd.measure || cmd == Cmd.BATTERY || cmd == Cmd.STEPS || cmd == Cmd.SLEEP)) {
+            AppState.log(LogEntry.Kind.INFO, "rhm", "Commande eis/colmi ${cmd.key} ignorée (protocole RHM)")
             return
         }
         submit(Command(cmd, reqId, Source.MQTT, day, arg, viaGateway || cmd.gateway))
@@ -107,10 +113,12 @@ object CommandProcessor {
             Cmd.UNBIND -> { unbind(c); return }
             Cmd.BIND -> { bind(c); return }
             Cmd.SCAN -> { scan(c); return }
+            Cmd.PIN -> { setPin(c); return }
             else -> {}
         }
-        // Bague déconnectée → erreur immédiate
-        if (AppState.ring.value != RingConn.CONNECTED) {
+        // Bague déconnectée : la commande est quand même acceptée ; à son tour, on cherche la bague
+        // et on s'y connecte (execute → RingManager.ensureConnected). Pas de bague associée → erreur.
+        if (AppState.ring.value == RingConn.NO_RING || AppState.prefs.ringMac == null) {
             publishError(c.cmd.key, c, Err.RING_DISCONNECTED)
             if (c.cmd.measure) AppState.showError(c.cmd.key, Err.RING_DISCONNECTED)
             return
@@ -122,6 +130,17 @@ object CommandProcessor {
             AppState.showError(c.cmd.key, Err.NOT_SUPPORTED)
             return
         }
+        // JALON 0 (à la demande) : une seule opération GATT ; la seconde est refusée BUSY, sans ouvrir GATT
+        if (RingManager.onDemand && c.cmd != Cmd.CANCEL) {
+            if (RingManager.releaseFault) {
+                com.eis.qringmqtt.ble.GattLog.step("NOT_READY", "libération précédente non prouvée")
+                publishError(c.cmd.key, c, Err.RELEASE_UNKNOWN); return
+            }
+            if (AppState.active.value != null || AppState.syncing.value != null || AppState.queued.value.isNotEmpty()) {
+                com.eis.qringmqtt.ble.GattLog.step("BUSY", c.cmd.key + (c.reqId?.let { " · $it" } ?: ""))
+                publishError(c.cmd.key, c, Err.BUSY); return
+            }
+        }
         // Déjà en cours ou en attente : on ignore le doublon venant de l'interface
         if (c.source == Source.MANUAL &&
             (AppState.active.value?.cmd == c.cmd || c.cmd in AppState.queued.value)
@@ -131,9 +150,19 @@ object CommandProcessor {
         channel.trySend(c)
     }
 
+    /** « Annuler » : arrêt FORCÉ — mesure, recherche / connexion de la bague, file d'attente. */
     fun cancelCurrent() {
+        val a = AppState.active.value
         Measurer.cancel()
         currentJob?.cancel()
+        // Commandes en attente derrière : vidées (sinon elles relancent une connexion)
+        while (channel.tryReceive().isSuccess) {}
+        AppState.queued.value = emptyList()
+        // Recherche / connexion en cours arrêtée, bague lâchée (connexion à la demande)
+        RingManager.abortConnect()
+        AppState.active.value = null
+        AppState.syncing.value = null
+        if (a != null) AppState.log(LogEntry.Kind.INFO, "bague", "Mesure ${a.cmd.key} annulée")
     }
 
     // ------------------------------------------------------------------ commandes du gateway
@@ -145,6 +174,24 @@ object CommandProcessor {
         mqtt?.publish("lang", base(c).put("status", "ok").put("lang", l.code), LogEntry.Kind.OUT, viaGateway = true)
         mqtt?.publishStatusNow(true)
     }
+
+    /** Nouveau code PIN envoyé par l'admin (haché) : gardé dans l'app, même après redémarrage. */
+    private fun setPin(c: Command) {
+        val h = c.arg?.trim()?.lowercase()
+        if (h == null || h.length != 64 || !h.all { it in "0123456789abcdef" }) { publishError("pin", c, Err.BAD_REQUEST); return }
+        AppState.prefs.setPinHash(h)
+        com.eis.qringmqtt.ui.PinLock.lock()
+        AppState.log(LogEntry.Kind.INFO, "admin", "Nouveau code PIN reçu de l'admin")
+        mqtt?.publish("pin", base(c).put("status", "ok"), LogEntry.Kind.OUT, viaGateway = true)
+    }
+
+    /** Petit message à l'écran de la TV / montre (connexion, déconnexion de la bague). */
+    private fun notice(text: String) {
+        AppState.log(LogEntry.Kind.INFO, "bague", text)
+        try { android.widget.Toast.makeText(AppState.appContext, text, android.widget.Toast.LENGTH_SHORT).show() } catch (_: Exception) {}
+    }
+
+    private fun ringModel(): String = RingManager.modelLabel()
 
     /** Dissociation (bouton Réglages ou MQTT). L'historique est conservé. */
     fun unbind(c: Command) {
@@ -193,10 +240,46 @@ object CommandProcessor {
     // ------------------------------------------------------------------ exécution
 
     private suspend fun execute(c: Command) {
+        // La bague reste connectée pendant toute la commande ; à la demande, elle est lâchée après
+        RingManager.beginUse()
+        if (RingManager.onDemand) com.eis.qringmqtt.ble.GattLog.step("CMD", c.cmd.key + (c.reqId?.let { " · $it" } ?: ""))
+        val wasConnected = AppState.ring.value == RingConn.CONNECTED
+        var used = false
+        try {
+            used = executeInner(c, wasConnected)
+        } finally {
+            RingManager.endUse()
+            // À la demande : la bague est TOUJOURS libérée (et vérifiée) à la fin, même après un échec,
+            // un délai dépassé, une annulation ou une bague introuvable — comme après une mesure réussie
+            if (RingManager.onDemand) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                RingManager.forceRelease(c.cmd.key)
+            }
+        }
+    }
+
+    /** true si la bague a été connectée pour la commande. */
+    private suspend fun executeInner(c: Command, wasConnected: Boolean): Boolean {
         if (AppState.ring.value != RingConn.CONNECTED) {
-            publishError(c.cmd.key, c, Err.RING_DISCONNECTED)
-            if (c.cmd.measure) AppState.showError(c.cmd.key, Err.RING_DISCONNECTED)
-            return
+            // Hors portée / déconnectée : on prévient que la mesure démarre, on cherche la bague
+            // (30 s max) et on mesure dès qu'elle est connectée
+            mqtt?.publish(c.cmd.key, base(c).put("status", "measuring").put("phase", "connecting"), LogEntry.Kind.MEASURING)
+            // Écran de la TV : la case de la mesure affiche « Recherche de la bague… »
+            if (c.cmd.measure) AppState.active.value =
+                ActiveMeasure(c.cmd, c.source, System.currentTimeMillis(),
+                    liveText = com.eis.qringmqtt.data.tr("meas.ring_connecting", ringModel()))
+            val ok = try {
+                RingManager.ensureConnected()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Annulé pendant la recherche de la bague
+                if (c.cmd.measure) { AppState.active.value = null; publishError(c.cmd.key, c, Err.CANCELLED) }
+                throw e
+            }
+            if (c.cmd.measure) AppState.active.value = null
+            if (!ok) {
+                publishError(c.cmd.key, c, Err.RING_DISCONNECTED)
+                if (c.cmd.measure) AppState.showError(c.cmd.key, Err.RING_DISCONNECTED)
+                return false
+            }
         }
         try {
             // File Bluetooth commune avec la mise à l'heure / batterie de RingManager : une chose à la fois
@@ -213,20 +296,33 @@ object CommandProcessor {
             Log.e(TAG, "execute ${c.cmd}", e)
             publishError(c.cmd.key, c, Err.MEASURE_FAILED)
         }
+        return true
     }
 
     private suspend fun runMeasure(c: Command) {
         AppState.clearError(c.cmd.key)
-        AppState.active.value = ActiveMeasure(c.cmd, c.source, System.currentTimeMillis())
+        // Étapes à l'écran : Connexion… → Mesure en cours… → Déconnexion… → Résultat envoyé
+        AppState.active.value = ActiveMeasure(c.cmd, c.source, System.currentTimeMillis(),
+            liveText = com.eis.qringmqtt.data.tr("meas.running"))
         mqtt?.publish(c.cmd.key, base(c).put("status", "measuring"), LogEntry.Kind.MEASURING)
 
+        if (RingManager.onDemand) com.eis.qringmqtt.ble.GattLog.step("MEASURE_START", c.cmd.key)
         val outcome = Measurer.measure(c.cmd) { live ->
             AppState.active.update { it?.copy(liveText = live) }
+        }
+        // État de la bague à la fin de la mesure (avant de la lâcher)
+        val stillConnected = AppState.ring.value == RingConn.CONNECTED
+        // Connexion à la demande : la bague est lâchée tout de suite après la mesure
+        var released: Boolean? = null
+        if (RingManager.onDemand) com.eis.qringmqtt.ble.GattLog.step("MEASURE_END", if (outcome is Measurer.Outcome.Ok) "ok" else "échec")
+        if (RingManager.onDemand && stillConnected) {
+            AppState.active.update { it?.copy(liveText = com.eis.qringmqtt.data.tr("meas.disconnecting", ringModel())) }
+            released = RingManager.releaseAndVerify()
         }
         AppState.active.value = null
 
         // Si la bague s'est déconnectée pendant la mesure
-        val result = if (outcome is Measurer.Outcome.Fail && AppState.ring.value != RingConn.CONNECTED)
+        val result = if (outcome is Measurer.Outcome.Fail && !stillConnected)
             Measurer.Outcome.Fail(Err.RING_DISCONNECTED) else outcome
 
         when (result) {
@@ -242,7 +338,10 @@ object CommandProcessor {
                 } else {
                     AppState.addReading(Reading(c.cmd.key, result.values, ts, c.source, by = c.phoneBy, via = c.phoneVia))
                 }
-                mqtt?.publish(c.cmd.key, base(c).put("status", "ok").merge(result.values), LogEntry.Kind.OUT)
+                mqtt?.publish(c.cmd.key, base(c).put("status", "ok").merge(result.values)
+                    .apply { if (released != null) put("resourcesReleased", released) }, LogEntry.Kind.OUT)
+                // Mesure réussie : envoyée (ou gardée et envoyée dès le retour du réseau)
+                notice(com.eis.qringmqtt.data.tr("meas.sent"))
             }
             is Measurer.Outcome.Fail -> {
                 if (result.code == Err.RING_REMOVED) setWorn(false)
@@ -384,6 +483,9 @@ object CommandProcessor {
             put("wanIp", NetInfo.wanIp ?: JSONObject.NULL)
             put("lang", I18n.lang.code)
             put("appVersion", BuildConfig.VERSION_NAME)
+            // Réglages appliqués (PIN, connexion GATT, Wi-Fi, réseau) + veille Wi-Fi (heure du réveil)
+            put("cfg", GatewayConfig.json())
+            put("sleepUntil", WifiSaver.sleepUntil.takeIf { it > 0 } ?: JSONObject.NULL)
             put("boundAt", AppState.prefs.boundAt.takeIf { it > 0 } ?: JSONObject.NULL)
             put("removedAt", AppState.prefs.removedAt.takeIf { it > 0 && AppState.worn.value == false } ?: JSONObject.NULL)
             put("ts", nowSec())

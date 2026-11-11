@@ -110,6 +110,7 @@ object RingManager {
         prefs.ringMac = mac
         AppState.ringLabel.value = prefs.ringLabel // vidé si c'est une autre bague
         prefs.ringName = name
+        prefs.rememberUsedRing(mac, name)    // proposée ensuite dans « Changer de bague »
         prefs.firmware = null
         prefs.hardware = null
         AppState.info.value = com.eis.qringmqtt.data.RingInfo(
@@ -200,6 +201,7 @@ object RingManager {
 
     /** Demande une lecture de batterie dès que possible (ouverture de l'app). */
     fun requestBatteryOnOpen() {
+        if (onDemand) return          // JALON 0 : aucune lecture automatique (batterie = GATT)
         batteryPending = true
         if (isReady) scope.launch { bleMutex.withLock { readBattery() } }
     }
@@ -216,12 +218,24 @@ object RingManager {
             return
         }
         if (isReady && BleOperateManager.getInstance().isConnected) return
+        // JALON 0 : à la demande, AUCUNE connexion hors commande (démarrage, Bluetooth rallumé, choix de bague) :
+        // seule la présence (advertising) est vérifiée
+        if (onDemand && holds == 0) {
+            try { BleOperateManager.getInstance().setNeedConnect(false) } catch (_: Exception) {}
+            if (AppState.ring.value != RingConn.IDLE) AppState.ring.value = RingConn.DISCONNECTED
+            lastPresence = 0L      // présence vérifiée au prochain tour (15 s)
+            GattLog.step("NO_CONNECT", "démarrage / changement : advertising seulement")
+            return
+        }
         reconnectJob?.cancel()
         AppState.reconnectInSec.value = null
         AppState.ring.value = RingConn.CONNECTING
+        connectingSinceMs = System.currentTimeMillis()
         try {
             DeviceManager.getInstance().deviceAddress = mac
-            BleOperateManager.getInstance().setNeedConnect(true)
+            // Connexion à la demande : une connexion (infos, batterie) puis la bague est lâchée ;
+            // le SDK ne la reconnecte pas tout seul
+            BleOperateManager.getInstance().setNeedConnect(!onDemand)
             BleOperateManager.getInstance().reConnectMac = mac
             // Une seule connexion directe ; ensuite c'est le SDK qui reconnecte (setNeedConnect)
             BleOperateManager.getInstance().connectDirectly(mac)
@@ -235,6 +249,7 @@ object RingManager {
     /** Bague perdue : on laisse le SDK la reconnecter (pas de boucle de l'app). */
     fun scheduleReconnect() {
         if (AppState.prefs.ringMac == null) return
+        if (onDemand) return
         if (!isBluetoothOn()) {
             AppState.ring.value = RingConn.BLUETOOTH_OFF
             return
@@ -266,14 +281,120 @@ object RingManager {
         val mac = AppState.prefs.ringMac ?: run { disconnectedSince = 0; return }
         if (!isBluetoothOn()) { disconnectedSince = 0; return }
         val now = System.currentTimeMillis()
+        // Connexion à la demande : pas de reconnexion, seulement une vérification de présence
+        if (onDemand) { disconnectedSince = 0; recheckFault(); presenceTick(mac, now); return }
         if (AppState.ring.value == RingConn.CONNECTED) { disconnectedSince = 0; return }
         if (disconnectedSince == 0L) disconnectedSince = now
         val since = now - disconnectedSince
+        // Reconnexion rapide : toutes les 20 s, petite recherche ciblée de la bague ; dès qu'elle
+        // est vue (revenue à portée), connexion immédiate sans attendre le SDK
+        if (now - lastQuickFind >= 20_000L) quickFind("retour à portée")
         // SDK bloqué : rien depuis 2 min → secours, puis toutes les 2 min ; remise à zéro complète après 10 min
         if (since >= 120_000L && now - lastRescue >= 120_000L) {
             lastRescue = now
             rescue(mac, hard = since >= 600_000L)
         }
+    }
+
+    private var lastQuickFind = 0L
+    @Volatile private var quickFinding = false
+    private var lastQuickConnect = 0L
+
+    /**
+     * Recherche ciblée de LA bague (10 s max) ; si elle est vue et pas connectée → connectDirectly.
+     * On ne se connecte que si la bague est réellement entendue : pas de tentatives à l'aveugle.
+     */
+    fun quickFind(why: String) {
+        val mac = AppState.prefs.ringMac ?: return
+        if (quickFinding || AppState.scanning.value || !isBluetoothOn()) return
+        if (AppState.ring.value == RingConn.CONNECTED) return
+        quickFinding = true
+        lastQuickFind = System.currentTimeMillis()
+        val stop = Runnable {
+            if (quickFinding) {
+                quickFinding = false
+                try { BleScannerHelper.getInstance().stopScan(app) } catch (_: Exception) {}
+            }
+        }
+        mainHandler.postDelayed(stop, 10_000)
+        try {
+            BleScannerHelper.getInstance().scanTheDevice(app, mac, object : com.oudmon.ble.base.scan.OnTheScanResult {
+                override fun onResult(device: BluetoothDevice?) {
+                    mainHandler.post {
+                        mainHandler.removeCallbacks(stop)
+                        quickFinding = false
+                        if (device == null) return@post
+                        val st = AppState.ring.value
+                        val now = System.currentTimeMillis()
+                        if (st == RingConn.CONNECTED || (st == RingConn.CONNECTING && now - lastQuickConnect < 15_000L)) return@post
+                        lastQuickConnect = now
+                        AppState.log(LogEntry.Kind.INFO, "bague", "Bague vue ($why) : connexion immédiate")
+                        try {
+                            DeviceManager.getInstance().deviceAddress = mac
+                            BleOperateManager.getInstance().setNeedConnect(!onDemand)
+                            BleOperateManager.getInstance().reConnectMac = mac
+                            AppState.ring.value = RingConn.CONNECTING
+                            if (onDemand) GattLog.step("CONNECT_CALL", why)
+                            BleOperateManager.getInstance().connectDirectly(mac)
+                        } catch (e: Exception) {
+                            Diag.error("connexion rapide : ${e.message}")
+                        }
+                    }
+                }
+
+                override fun onScanFailed(errorCode: Int) {
+                    mainHandler.post { mainHandler.removeCallbacks(stop); quickFinding = false }
+                }
+            })
+        } catch (e: Exception) {
+            mainHandler.removeCallbacks(stop)
+            quickFinding = false
+        }
+    }
+
+    /**
+     * Mesure demandée alors que la bague n'est pas connectée : on la cherche et on se connecte
+     * tout de suite (recherche ciblée + connexion), puis on attend qu'elle soit prête.
+     * true = prête ; false = pas trouvée dans le délai (hors portée).
+     */
+    /** true pendant qu'une mesure cherche la bague : son retour n'affiche pas « Content de vous revoir ». */
+    @Volatile var searchingForMeasure = false
+        private set
+
+    /** Recherche + connexion : 60 s au plus, puis « Bague hors portée ». */
+    suspend fun ensureConnected(timeoutMs: Long = 60_000L): Boolean {
+        if (AppState.ring.value == RingConn.CONNECTED) return true
+        if (AppState.prefs.ringMac == null || !isBluetoothOn()) return false
+        searchingForMeasure = true
+        try {
+            val ok = waitConnected(timeoutMs)
+            if (!ok && onDemand) {
+                // Pas trouvée : comme avant, « Bague hors portée » (écran + statut)
+                try { BleOperateManager.getInstance().setNeedConnect(false) } catch (_: Exception) {}
+                missedPresence = 2
+                lastSeenMs = 0L
+                if (AppState.ring.value != RingConn.CONNECTED) {
+                    AppState.ring.value = RingConn.DISCONNECTED
+                    events.tryEmit("presence_lost")
+                }
+            }
+            return ok
+        } finally {
+            searchingForMeasure = false
+        }
+    }
+
+    private suspend fun waitConnected(timeoutMs: Long): Boolean {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            if (AppState.ring.value == RingConn.CONNECTED) {
+                delay(1_200)      // laisse passer la mise à l'heure faite à la connexion
+                return true
+            }
+            if (!quickFinding && System.currentTimeMillis() - lastQuickFind >= 11_000L) quickFind("mesure demandée")
+            delay(500)
+        }
+        return AppState.ring.value == RingConn.CONNECTED
     }
 
     private fun rescue(mac: String, hard: Boolean) {
@@ -309,6 +430,7 @@ object RingManager {
         Diag.error("bague muette (3 commandes sans réponse)")
         AppState.log(LogEntry.Kind.ERROR, "bague", "La bague ne répond plus : reconnexion propre")
         try { BleOperateManager.getInstance().disconnect() } catch (_: Exception) {}
+        if (onDemand) return      // la prochaine mesure reconnectera
         scope.launch {
             delay(3_000)
             if (AppState.ring.value == RingConn.CONNECTED || AppState.ring.value == RingConn.CONNECTING) return@launch
@@ -334,8 +456,18 @@ object RingManager {
         AppState.reconnectInSec.value = null
         AppState.ring.value = RingConn.CONNECTED
         disconnectedSince = 0
+        lastSeenMs = System.currentTimeMillis()
+        missedPresence = 0
         Diag.connected()
         BleHealth.ok()
+        if (onDemand) GattLog.step("CONNECTED", "services découverts")
+        if (onDemand && holds == 0 && !searchingForMeasure) {
+            // JALON 0 : connexion qui n'a été demandée par aucune commande → coupée tout de suite
+            GattLog.step("UNEXPECTED_RECONNECT", "aucune commande en cours : déconnexion")
+            scope.launch { releaseAndVerify() }
+            return
+        }
+        notice(true)
         events.tryEmit("connected")
         scope.launch {
             delay(800)
@@ -349,12 +481,15 @@ object RingManager {
                 delay(300)
                 readVersions()
                 delay(900)      // versions lues en 2 temps (400 ms)
+                // Batterie : lue dans la session commandée (pas de session à part)
                 if (batteryPending || AppState.info.value.battery == null) {
                     delay(200)
                     readBattery()
                 }
             }
             events.tryEmit("info")
+            // Connexion à la demande : infos lues → bague lâchée si aucune commande ne l'utilise
+            if (onDemand && holds == 0) scheduleRelease(2_000)
         }
     }
 
@@ -363,9 +498,278 @@ object RingManager {
             AppState.ring.value = RingConn.NO_RING
             return
         }
+        gattDownAt = System.currentTimeMillis()
+        val wasConnected = AppState.ring.value == RingConn.CONNECTED
+        if (wasConnected && !releasing) notice(false)
+        if (onDemand) {
+            // Lâchée volontairement ou vue il y a peu : « libre » (à portée) ; sinon hors portée
+            val recent = System.currentTimeMillis() - lastSeenMs < PRESENCE_LOST_MS
+            AppState.ring.value = if (releasing || recent) RingConn.IDLE else RingConn.DISCONNECTED
+            events.tryEmit("disconnected")
+            return
+        }
         if (AppState.ring.value == RingConn.CONNECTED) Diag.disconnected()
         events.tryEmit("disconnected")
         scheduleReconnect()
+    }
+
+    /** Modèle de la bague pour l'affichage : « R12 » (depuis « COLMI R12_6B03 »), sinon le nom. */
+    fun modelLabel(): String {
+        val i = AppState.info.value
+        val src = listOf(i.name, i.model, AppState.prefs.ringName ?: "").firstOrNull { it.isNotBlank() } ?: return ""
+        return Regex("R\\d{2,3}", RegexOption.IGNORE_CASE).find(src)?.value?.uppercase() ?: i.model.ifBlank { src }
+    }
+
+    /** Message à l'écran (toast) + journal : « Bague R12 connectée » / « Bague R12 déconnectée ». */
+    fun notice(connected: Boolean) {
+        val m = modelLabel().ifBlank { "" }
+        val text = com.eis.qringmqtt.data.tr(if (connected) "ring.model_connected" else "ring.model_disconnected", m).replace("  ", " ")
+        AppState.log(LogEntry.Kind.INFO, "bague", text)
+        mainHandler.post {
+            try { android.widget.Toast.makeText(app, text, android.widget.Toast.LENGTH_SHORT).show() } catch (_: Exception) {}
+        }
+    }
+
+    // ------------------------------------------------------------------ connexion à la demande (GATT)
+
+    /** Réglé depuis l'admin : la bague n'est connectée que pendant une mesure, puis lâchée
+     *  (les autres Gateway RHM peuvent alors la trouver). */
+    // EN DUR : toujours connexion à la demande (connectée pour la mesure, puis libérée). Plus réglable.
+    val onDemand: Boolean get() = true
+
+    private const val PRESENCE_EVERY_MS = 5 * 60_000L
+    private const val PRESENCE_LOST_MS = 11 * 60_000L
+    @Volatile private var holds = 0
+    @Volatile private var releasing = false
+    private var releaseJob: Job? = null
+    private var lastSeenMs = 0L
+    private var lastPresence = 0L
+    private var missedPresence = 0
+    @Volatile private var presenceScanning = false
+    private var connectingSinceMs = 0L
+
+    /** Une commande va utiliser la bague (mesure, synchro) : elle reste connectée jusqu'à endUse(). */
+    fun beginUse() { holds++; releaseJob?.cancel() }
+
+    /** Commande terminée : à la demande, la bague est lâchée 3 s après (si rien d'autre ne suit). */
+    fun endUse() {
+        holds = (holds - 1).coerceAtLeast(0)
+        if (onDemand && holds == 0) scheduleRelease(3_000)
+    }
+
+    private fun scheduleRelease(ms: Long) {
+        releaseJob?.cancel()
+        releaseJob = scope.launch {
+            delay(ms)
+            if (onDemand && holds == 0 && AppState.active.value == null && AppState.syncing.value == null &&
+                AppState.ring.value == RingConn.CONNECTED) release()
+        }
+    }
+
+    /** Annulation forcée : arrête la recherche ciblée et une connexion en cours ;
+     *  à la demande, la bague est lâchée tout de suite. */
+    fun abortConnect() {
+        holds = 0
+        releaseJob?.cancel()
+        searchingForMeasure = false
+        if (quickFinding) {
+            quickFinding = false
+            try { BleScannerHelper.getInstance().stopScan(app) } catch (_: Exception) {}
+        }
+        if (!onDemand) return
+        when (AppState.ring.value) {
+            RingConn.CONNECTING -> {
+                try {
+                    BleOperateManager.getInstance().setNeedConnect(false)
+                    BleOperateManager.getInstance().disconnect()
+                } catch (_: Exception) {}
+                AppState.ring.value = if (System.currentTimeMillis() - lastSeenMs < PRESENCE_LOST_MS) RingConn.IDLE else RingConn.DISCONNECTED
+                events.tryEmit("released")
+            }
+            RingConn.CONNECTED -> release()
+            else -> {}
+        }
+    }
+
+    // ------------------------------------------------------------------ JALON 0 : libération prouvée
+
+    /** Libération non prouvée : la gateway refuse les mesures (NOT_READY) jusqu'à preuve. */
+    @Volatile var releaseFault = false
+        private set
+    /** Dernière libération : true = prouvée, false = incertaine, null = aucune. */
+    @Volatile var lastReleased: Boolean? = null
+        private set
+    @Volatile private var gattDownAt = 0L
+
+    /** La MAC est-elle encore dans les connexions GATT d'Android ? */
+    private fun gattStillConnected(mac: String): Boolean = try {
+        val bm = app.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        bm.getConnectedDevices(android.bluetooth.BluetoothProfile.GATT).any { it.address.equals(mac, ignoreCase = true) }
+    } catch (_: Exception) { false }
+
+    /**
+     * Déconnexion + vérification : rappel « déconnecté » (8 s max), close() différé du SDK,
+     * puis absence de la MAC dans les connexions GATT d'Android. true = ressources libérées.
+     */
+    suspend fun releaseAndVerify(): Boolean {
+        val mac = AppState.prefs.ringMac ?: return true
+        val t0 = System.currentTimeMillis()
+        gattDownAt = 0L
+        release()
+        while (gattDownAt == 0L && System.currentTimeMillis() - t0 < 8_000L) delay(200)
+        if (gattDownAt != 0L) GattLog.step("DISCONNECTED", "${gattDownAt - t0} ms")
+        delay(1_500)       // close() du SDK (postDelayed après disconnect)
+        GattLog.step("CLOSE", "close() du SDK attendu")
+        var ok = !gattStillConnected(mac)
+        if (!ok) {
+            delay(3_000)
+            ok = !gattStillConnected(mac)
+        }
+        lastReleased = ok
+        releaseFault = !ok
+        GattLog.step(if (ok) "RELEASE_OK" else "RELEASE_UNKNOWN", "${System.currentTimeMillis() - t0} ms")
+        if (ok) { lastPresence = 0L; GattLog.step("SCAN_RESUME", "présence par advertising") }
+        return ok
+    }
+
+    /**
+     * Fin de commande (réussie ou non) : arrête toute recherche / connexion en cours et libère la bague
+     * si elle est connectée, en cours de connexion ou encore vue connectée par Android. Ne fait rien si
+     * elle est déjà libérée (cas d'une mesure réussie, libérée juste avant).
+     */
+    suspend fun forceRelease(why: String) {
+        if (!onDemand) return
+        val mac = AppState.prefs.ringMac ?: return
+        searchingForMeasure = false
+        if (quickFinding) {
+            quickFinding = false
+            try { BleScannerHelper.getInstance().stopScan(app) } catch (_: Exception) {}
+        }
+        try { BleOperateManager.getInstance().setNeedConnect(false) } catch (_: Exception) {}
+        val st = AppState.ring.value
+        if (st != RingConn.CONNECTED && st != RingConn.CONNECTING && !gattStillConnected(mac)) {
+            // Connexion éventuellement encore en attente dans le SDK (bague introuvable) : annulée + close()
+            try { BleOperateManager.getInstance().disconnect() } catch (_: Exception) {}
+            GattLog.step("FORCE_RELEASE", "$why · aucune connexion active")
+            return
+        }
+        GattLog.step("FORCE_RELEASE", why)
+        releaseAndVerify()
+        // Jamais connectée (bague introuvable) : pas « libre / à portée » mais hors portée
+        if (st == RingConn.CONNECTING && lastSeenMs == 0L) AppState.ring.value = RingConn.DISCONNECTED
+    }
+
+    /** Bague suivie vue en advertising : « libre / à portée » (sans connexion). */
+    fun markSeen() {
+        lastSeenMs = System.currentTimeMillis()
+        missedPresence = 0
+        if (AppState.ring.value == RingConn.DISCONNECTED) { AppState.ring.value = RingConn.IDLE; events.tryEmit("presence") }
+    }
+
+    /** Âge (ms) de la dernière fois où la bague a été vue (advertising ou connexion), null si jamais. */
+    fun lastSeenAgoMs(): Long? = lastSeenMs.takeIf { it > 0 }?.let { System.currentTimeMillis() - it }
+
+    /** Défaut de libération : revérifié à chaque tour de surveillance (15 s). */
+    private fun recheckFault() {
+        val mac = AppState.prefs.ringMac ?: run { releaseFault = false; return }
+        if (releaseFault && AppState.ring.value != RingConn.CONNECTED && !gattStillConnected(mac)) {
+            releaseFault = false
+            lastReleased = true
+            GattLog.step("RELEASE_OK", "revérifiée")
+        }
+    }
+
+    /** Lâche la bague (déconnexion GATT propre, pas de reconnexion automatique). */
+    fun release() {
+        if (AppState.prefs.ringMac == null) return
+        releasing = true
+        lastSeenMs = System.currentTimeMillis()
+        AppState.log(LogEntry.Kind.INFO, "bague", "Bague lâchée (connexion à la demande)")
+        GattLog.step("DISCONNECT_CALL")
+        try {
+            BleOperateManager.getInstance().setNeedConnect(false)
+            BleOperateManager.getInstance().disconnect()
+        } catch (_: Exception) {}
+        AppState.ring.value = RingConn.IDLE
+        notice(false)
+        events.tryEmit("released")
+        scope.launch { delay(5_000); releasing = false }
+    }
+
+    /** Changement de mode reçu de l'admin. */
+    fun setGattMode(mode: String) {
+        val m = if (mode == "ondemand") "ondemand" else "permanent"
+        if (AppState.prefs.gattMode == m) return
+        AppState.prefs.gattMode = m
+        AppState.log(LogEntry.Kind.INFO, "bague", if (m == "ondemand") "Connexion à la demande activée" else "Connexion permanente activée")
+        if (AppState.prefs.ringMac == null) return
+        if (m == "ondemand") {
+            try { BleOperateManager.getInstance().setNeedConnect(false) } catch (_: Exception) {}
+            when (AppState.ring.value) {
+                RingConn.CONNECTED -> scheduleRelease(1_000)
+                RingConn.DISCONNECTED, RingConn.CONNECTING -> { lastPresence = 0L }   // présence vérifiée au prochain tour
+                else -> {}
+            }
+        } else {
+            releaseJob?.cancel()
+            attempt = 0
+            connect()
+        }
+        events.tryEmit("info")
+    }
+
+    /** Toutes les 5 min (à la demande, bague libre) : recherche ciblée 8 s, sans connexion.
+     *  Vue → « libre » ; pas vue 2 fois de suite → hors portée. */
+    private fun presenceTick(mac: String, now: Long) {
+        if (holds > 0 || presenceScanning || quickFinding || AppState.scanning.value) return
+        val st = AppState.ring.value
+        if (st == RingConn.CONNECTING && now - connectingSinceMs > 45_000L) {
+            // Connexion de départ jamais aboutie (bague absente) : on l'arrête et on vérifie la présence
+            try { BleOperateManager.getInstance().disconnect() } catch (_: Exception) {}
+            AppState.ring.value = RingConn.DISCONNECTED
+        } else if (st == RingConn.CONNECTED || st == RingConn.CONNECTING) return
+        if (now - lastPresence < PRESENCE_EVERY_MS) return
+        lastPresence = now
+        presenceScanning = true
+        var seen = false
+        val stop = Runnable {
+            if (!presenceScanning) return@Runnable
+            presenceScanning = false
+            try { BleScannerHelper.getInstance().stopScan(app) } catch (_: Exception) {}
+            if (!seen) {
+                missedPresence++
+                if (missedPresence >= 2 && AppState.ring.value == RingConn.IDLE) {
+                    AppState.ring.value = RingConn.DISCONNECTED
+                    events.tryEmit("presence_lost")
+                }
+            }
+        }
+        mainHandler.postDelayed(stop, 8_000)
+        try {
+            BleScannerHelper.getInstance().scanTheDevice(app, mac, object : com.oudmon.ble.base.scan.OnTheScanResult {
+                override fun onResult(device: BluetoothDevice?) {
+                    mainHandler.post {
+                        if (device == null) return@post
+                        seen = true
+                        lastSeenMs = System.currentTimeMillis()
+                        missedPresence = 0
+                        mainHandler.removeCallbacks(stop)
+                        stop.run()
+                        if (AppState.ring.value == RingConn.DISCONNECTED) {
+                            AppState.ring.value = RingConn.IDLE
+                            events.tryEmit("presence")
+                        }
+                    }
+                }
+
+                override fun onScanFailed(errorCode: Int) {
+                    mainHandler.post { mainHandler.removeCallbacks(stop); stop.run() }
+                }
+            })
+        } catch (e: Exception) {
+            mainHandler.removeCallbacks(stop)
+            presenceScanning = false
+        }
     }
 
     // ------------------------------------------------------------------ infos bague
@@ -375,9 +779,11 @@ object RingManager {
         val rsp = awaitCallback<SetTimeRsp?>(6000, health = true) { resume ->
             CommandHandle.getInstance().executeReqCmd(SetTimeReq(0), ICommandResponse<SetTimeRsp> { resume(it) })
         } ?: return
-        val s = mutableSetOf("hr", "stress", "steps", "sleep", "sedentary", "history", "battery")
+        // Température toujours proposée : la COLMI R12 annonce mSupportTemperature = false
+        // mais mesure bien la température (même commande 0x69 / 0x0B / 0x25 que le projet
+        // open source, envoyée par manualTemperature du SDK).
+        val s = mutableSetOf("hr", "stress", "steps", "sleep", "sedentary", "history", "battery", "temp")
         if (rsp.mSupportBloodOxygen) s += "spo2"
-        if (rsp.mSupportTemperature) s += "temp"
         if (rsp.mSupportBloodPressure) s += "bp"
         if (rsp.mSupportHrv) s += "hrv"
         if (rsp.mSupportOneKeyCheck) s += "all"
@@ -461,6 +867,9 @@ object RingManager {
         override fun onLeScan(device: BluetoothDevice?, rssi: Int, scanRecord: ByteArray?) {
             if (device == null) return
             val name = try { device.name } catch (_: SecurityException) { null }
+            // Présence RHM (advertising) : MAC, nom, RSSI, paquets
+            com.eis.qringmqtt.mqtt.PresenceTracker.onAdvertising(device.address, name, rssi)
+            if (device.address.equals(AppState.prefs.ringMac, ignoreCase = true)) mainHandler.post { markSeen() }
             if (name.isNullOrBlank()) return
             val item = ScannedRing(name, device.address, rssi)
             mainHandler.post {

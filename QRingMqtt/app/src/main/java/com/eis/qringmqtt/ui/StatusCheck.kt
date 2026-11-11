@@ -177,13 +177,20 @@ object StatusCheck {
     private fun onRing(r: RingConn) {
         val now = System.currentTimeMillis()
         when (r) {
-            RingConn.CONNECTED -> {
+            // IDLE = connexion à la demande : bague libre mais à portée (comme connectée pour l'écran)
+            RingConn.CONNECTED, RingConn.IDLE -> {
                 lostJob?.cancel()
                 val ev = evidence.value
                 when {
                     // Premier contact depuis le démarrage de l'app
                     ev.connectedSinceMs == 0L -> evidence.value = Evidence(connectedSinceMs = now)
                     // Retour après une vraie perte : on repart de zéro et on propose la vérification
+                    // Bague retrouvée par une mesure en cours : pas de popup, la mesure suit
+                    outShown && com.eis.qringmqtt.ble.RingManager.searchingForMeasure -> {
+                        evidence.value = Evidence(connectedSinceMs = now)
+                        cooldownUntil.value = 0L
+                        if (popup.value?.kind == PopupKind.OUT) popup.value = null
+                    }
                     outShown -> {
                         evidence.value = Evidence(connectedSinceMs = now)
                         cooldownUntil.value = 0L
@@ -211,7 +218,7 @@ object StatusCheck {
                     lostJob = scope.launch {
                         delay(OUT_POPUP_DELAY_MS)
                         val cur = AppState.ring.value
-                        if (cur != RingConn.CONNECTED && cur != RingConn.NO_RING) {
+                        if (cur != RingConn.CONNECTED && cur != RingConn.IDLE && cur != RingConn.NO_RING) {
                             outShown = true
                             // Pas de popup « éloignée » pour le Bluetooth de la TV coupé (le bandeau le dit)
                             if (cur != RingConn.BLUETOOTH_OFF) popup.value = Popup(PopupKind.OUT, System.currentTimeMillis())
@@ -250,7 +257,7 @@ object StatusCheck {
         val immediate = when (ring) {
             RingConn.NO_RING -> Phase.NO_RING
             RingConn.BLUETOOTH_OFF -> Phase.BT_OFF
-            RingConn.CONNECTED -> null
+            RingConn.CONNECTED, RingConn.IDLE -> null
             else -> Phase.OUT
         }
         if (immediate != null) {
@@ -373,12 +380,22 @@ object StatusCheck {
      */
     data class Summary(val look: Look, val color: Color, val short: String, val title: String, val detail: String?, val progress: Float? = null)
 
+    /** Bague libérée (connexion à la demande) : « Bague R10 déconnectée », avec « portée » / « retirée » en détail. */
     fun summary(ring: RingConn, ev: Evidence, st: State?, nowMs: Long): Summary {
+        val s = summaryRaw(ring, ev, st, nowMs)
+        if (ring != RingConn.IDLE) return s
+        val model = com.eis.qringmqtt.ble.RingManager.modelLabel()
+        val detail = listOfNotNull(s.short.takeIf { s.look == Look.WORN || s.look == Look.REMOVED }, s.detail)
+            .joinToString(" · ").ifBlank { null }
+        return s.copy(short = tr("ring.idle_short"), title = tr("ring.model_disconnected", model), detail = detail)
+    }
+
+    private fun summaryRaw(ring: RingConn, ev: Evidence, st: State?, nowMs: Long): Summary {
         fun hm(ms: Long) = hhmmss(ms).substring(0, 5)
         when (ring) {
             RingConn.NO_RING -> return Summary(Look.NO_RING, C.muted, tr("rs.no_ring"), tr("rs.no_ring"), null)
             RingConn.BLUETOOTH_OFF -> return Summary(Look.BT_OFF, C.err, tr("rs.bt_off"), tr("rs.bt_off"), tr("home.bt_off_text"))
-            RingConn.CONNECTED -> {}
+            RingConn.CONNECTED, RingConn.IDLE -> {}
             else -> {
                 if (ev.connectedSinceMs == 0L) return Summary(Look.CONNECTING, C.muted, tr("rs.connecting"), tr("rs.connecting"), null)
                 val since = ev.lostAtMs ?: nowMs

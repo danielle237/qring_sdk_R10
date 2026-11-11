@@ -1,0 +1,94 @@
+package com.eis.qringmqtt.ble
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.Context
+import com.eis.qringmqtt.data.AppState
+import com.eis.qringmqtt.data.LogEntry
+
+/**
+ * Scan Bluetooth Android NATIF, en parallèle du scan du SDK QRing.
+ * Certaines puces (Spreadtrum de la DM80) ne renvoient rien au scan du SDK alors que le système
+ * voit la bague : ce scan natif prend le relais. Advertising uniquement, jamais de connexion.
+ *  - startAll : toutes les bagues autour (page « Bague active » / Scanner) ;
+ *  - findMac  : une MAC précise (présence, recherche avant mesure), filtre matériel sur l'adresse
+ *               puis, si la puce ne le gère pas, scan sans filtre avec tri par adresse.
+ */
+@SuppressLint("MissingPermission")
+object NativeScan {
+    /** Journal de l'app + logcat (tag QRingMqtt), pour le diagnostic du scan. */
+    private fun note(t: String) { AppState.log(LogEntry.Kind.INFO, "scan", t); try { android.util.Log.i("QRingMqtt", "SCAN $t") } catch (_: Exception) {} }
+    private var allCb: ScanCallback? = null
+    private var macCb: ScanCallback? = null
+
+    private fun scanner(ctx: Context) =
+        (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.takeIf { it.isEnabled }?.bluetoothLeScanner
+
+    private fun settings(): ScanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+
+    private fun nameOf(r: ScanResult): String? =
+        r.scanRecord?.deviceName?.takeIf { it.isNotBlank() } ?: try { r.device.name } catch (_: SecurityException) { null }
+
+    /** Toutes les bagues : onResult(device, rssi, nom) — le nom peut être vide. */
+    fun startAll(ctx: Context, onResult: (BluetoothDevice, Int, String?) -> Unit) {
+        stopAll(ctx)
+        val sc = scanner(ctx) ?: run { note("scan natif : Bluetooth LE indisponible"); return }
+        var n = 0
+        val cb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                if (n++ < 5) note("vu : ${result.device.address} ${nameOf(result) ?: "?"} ${result.rssi} dBm")
+                onResult(result.device, result.rssi, nameOf(result))
+            }
+            override fun onBatchScanResults(results: MutableList<ScanResult>) { results.forEach { onResult(it.device, it.rssi, nameOf(it)) } }
+            override fun onScanFailed(errorCode: Int) { note("Scan natif refusé (code $errorCode)") }
+        }
+        note("scan natif : démarrage (toutes les bagues)")
+        try { sc.startScan(null, settings(), cb); allCb = cb } catch (e: Exception) {
+            note("Scan natif impossible : ${e.message}")
+        }
+    }
+
+    fun stopAll(ctx: Context) {
+        val cb = allCb ?: return
+        allCb = null
+        try { scanner(ctx)?.stopScan(cb) } catch (_: Exception) {}
+    }
+
+    /** Recherche d'UNE bague (MAC) pendant [timeoutMs] : onFound(device, rssi) au premier résultat. */
+    fun findMac(ctx: Context, mac: String, timeoutMs: Long, onFound: (BluetoothDevice, Int) -> Unit) {
+        stopMac(ctx)
+        val sc = scanner(ctx) ?: return
+        var done = false
+        val cb = object : ScanCallback() {
+            fun hit(r: ScanResult) {
+                if (done || !r.device.address.equals(mac, ignoreCase = true)) return
+                done = true
+                note("bague $mac trouvée par le scan natif (${r.rssi} dBm)")
+                mainHandler.post { stopMac(ctx); onFound(r.device, r.rssi) }
+            }
+            override fun onScanResult(callbackType: Int, result: ScanResult) = hit(result)
+            override fun onBatchScanResults(results: MutableList<ScanResult>) { results.forEach { hit(it) } }
+            override fun onScanFailed(errorCode: Int) {
+                note("Scan natif ciblé refusé (code $errorCode) : sans filtre")
+                // Filtre d'adresse non géré par la puce : scan sans filtre, tri par adresse dans hit()
+                try { sc.startScan(null, settings(), this) } catch (_: Exception) {}
+            }
+        }
+        val filter = try { listOf(ScanFilter.Builder().setDeviceAddress(mac.uppercase()).build()) } catch (_: Exception) { null }
+        try { sc.startScan(filter, settings(), cb); macCb = cb } catch (e: Exception) {
+            try { sc.startScan(null, settings(), cb); macCb = cb } catch (_: Exception) {}
+        }
+        mainHandler.postDelayed({ if (!done) stopMac(ctx) }, timeoutMs)
+    }
+
+    fun stopMac(ctx: Context) {
+        val cb = macCb ?: return
+        macCb = null
+        try { scanner(ctx)?.stopScan(cb) } catch (_: Exception) {}
+    }
+}

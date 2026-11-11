@@ -58,7 +58,8 @@ class MqttManager(
 
     private val clientId: String by lazy {
         val id = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "x"
-        "qring-$id"
+        // APK RHM V0.1 : identifiant MQTT unique par montre (= identité de la gateway)
+        if (RhmIdentity.RHM_ONLY) "rhm-${RhmIdentity.GATEWAY_ID}" else "qring-$id"
     }
 
     // ------------------------------------------------------------------ topics
@@ -94,6 +95,7 @@ class MqttManager(
         stopped = true
         retryJob?.cancel()
         publishStatusNow(false)
+        if (RhmProtocol.enabled) publishRhm("status", RhmProtocol.statusJson(false), retained = true, qos = 1)
         scope.launch {
             delay(500)
             try { client?.disconnect(1000) } catch (_: Exception) {}
@@ -102,6 +104,33 @@ class MqttManager(
         }
         unregisterNetworkCallback()
         AppState.broker.value = BrokerConn.OFFLINE
+    }
+
+    /** Wi-Fi économie : en veille (statut « sleepUntil » déjà dans le statut) puis déconnexion PROPRE
+     *  (pas de message de dernière volonté → l'admin ne voit pas « hors ligne »). */
+    @Volatile private var sleeping = false
+
+    fun sleep() {
+        if (stopped) return
+        publishStatusNow(true)
+        scope.launch {
+            delay(800)
+            sleeping = true
+            stopped = true
+            retryJob?.cancel()
+            try { client?.disconnect(1500) } catch (_: Exception) {}
+            AppState.broker.value = BrokerConn.OFFLINE
+        }
+    }
+
+    /** Réveil après sleep() : reconnexion (le broker livre les ordres reçus entre-temps). */
+    fun resume() {
+        if (!sleeping) return
+        sleeping = false
+        stopped = false
+        retryCount = 0
+        connecting = false
+        connect()
     }
 
     /** À appeler quand la bague associée change ou quand les réglages changent. */
@@ -134,6 +163,8 @@ class MqttManager(
         AppState.broker.value = BrokerConn.CONNECTING
         try {
             val uri = "tcp://${p.host}:${p.port}"
+            Log.i(tag, "RHM connexion -> $uri user=${p.user} clientId=$clientId rhmOnly=${RhmIdentity.RHM_ONLY} base=${RhmProtocol.base()}")
+            scope.launch { AppState.log(LogEntry.Kind.INFO, "rhm", "Connexion $uri · user ${p.user} · id $clientId · base ${RhmProtocol.base()}") }
             val c = client ?: MqttAsyncClient(uri, clientId, MemoryPersistence()).also { client = it }
             c.setCallback(callback)
             val opts = MqttConnectOptions().apply {
@@ -144,7 +175,9 @@ class MqttManager(
                 maxInflight = 100               // rafales (sommeil, ALL) : pas de « too many publishes »
                 userName = p.user
                 password = p.password.toCharArray()
-                setWill("$base/status", statusPayload(false).toString().toByteArray(), 1, true)
+                // APK RHM V0.1 : dernière volonté « offline » sur rhm/…/status (eis/colmi reste utilisé à côté)
+                if (RhmIdentity.RHM_ONLY) setWill("${RhmProtocol.base()}/status", RhmProtocol.statusJson(false).toString().toByteArray(), 1, true)
+                else setWill("$base/status", statusPayload(false).toString().toByteArray(), 1, true)
             }
             c.connect(opts, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) {
@@ -176,6 +209,22 @@ class MqttManager(
         AppState.log(LogEntry.Kind.INFO, "broker", "OK ${AppState.prefs.host} · $gw")
         try {
             client?.subscribe("$gw/cmd", 1)
+            // Réglages de l'admin (retenus) : PIN, connexion GATT, Wi-Fi
+            client?.subscribe("$gw/config", 1)
+            // Trames RHM : commandes sur rhm/{client}/{site}/{gateway}/cmd + statut online + heartbeat + présence
+            // -- seulement une fois affecté (client_code/site_code reçus) : pas de donnée patient avant.
+            if (!(RhmProtocol.enabled && RhmProtocol.assigned)) {
+                Log.w(tag, "RHM NON actif : enabled=${RhmProtocol.enabled} assigned=${RhmProtocol.assigned}")
+                AppState.log(LogEntry.Kind.ERROR, "rhm", "RHM non actif : enabled=${RhmProtocol.enabled} assigned=${RhmProtocol.assigned}")
+            }
+            if (RhmProtocol.enabled && RhmProtocol.assigned) {
+                client?.subscribe("${RhmProtocol.base()}/cmd", 1)
+                Log.i(tag, "RHM abonné ${RhmProtocol.base()}/cmd + status online")
+                AppState.log(LogEntry.Kind.INFO, "rhm", "Abonné ${RhmProtocol.base()}/cmd · status online envoyé")
+                publishRhm("status", RhmProtocol.statusJson(true), retained = true, qos = 1)
+                publishRhm("heartbeat", RhmProtocol.heartbeatJson(), retained = false, qos = 0)
+                publishRhm("presence", RhmProtocol.presenceJson(), retained = false, qos = 0)
+            }
             if (base != gw) {
                 client?.subscribe("$base/cmd", 1)
                 // Nom donné dans l'admin (message retenu) : arrive tout de suite après l'abonnement
@@ -216,6 +265,15 @@ class MqttManager(
             val payload = message?.payload?.let { String(it, Charsets.UTF_8) } ?: return
             scope.launch {
                 AppState.log(LogEntry.Kind.IN, topic ?: "", payload)
+                com.eis.qringmqtt.service.WifiSaver.keepAwake()
+                if (topic != null && topic.startsWith("rhm/") && topic.endsWith("/cmd")) {
+                    RhmProtocol.onCmd(payload)
+                    return@launch
+                }
+                if (topic != null && topic.endsWith("/config")) {
+                    com.eis.qringmqtt.service.GatewayConfig.apply(payload, this@MqttManager)
+                    return@launch
+                }
                 if (topic != null && topic.endsWith("/profile")) {
                     onProfile(payload)
                     return@launch
@@ -304,11 +362,40 @@ class MqttManager(
 
     /** Publie sur {base}/{sub}. Si hors ligne, le message est gardé et envoyé plus tard. */
     fun publish(sub: String, json: JSONObject, kind: LogEntry.Kind, viaGateway: Boolean = false) {
+        // Mode RHM : les résultats de mesure partent en « result » RHM (pas sur eis/colmi → pas de doublon)
+        if (!viaGateway && RhmProtocol.interceptsEis(sub, json)) {
+            RhmProtocol.fromEis(sub, json)
+            return
+        }
         val base = if (viaGateway) (connectedGateway ?: gatewayBase()) else (connectedBase ?: baseTopic())
         val topic = "$base/$sub"
         val payload = json.toString()
         AppState.log(kind, topic, payload)
         publishRaw(topic, payload, retained = false, queueIfOffline = true)
+    }
+
+    /** Publie sur rhm/{client}/{site}/{gateway}/{sub}. Les « result » sont gardés si hors ligne. */
+    fun publishRhm(sub: String, json: JSONObject, retained: Boolean, qos: Int) {
+        val topic = "${RhmProtocol.base()}/$sub"
+        val payload = json.toString()
+        if (sub == "result") AppState.log(LogEntry.Kind.OUT, topic, payload)
+        val c = client
+        if (c != null && c.isConnected) {
+            try {
+                c.publish(topic, payload.toByteArray(Charsets.UTF_8), qos, retained)
+                Log.i(tag, "RHM publié $topic $payload")
+                if (sub != "result") AppState.log(LogEntry.Kind.OUT, topic, payload)
+                return
+            } catch (e: Exception) { Log.w(tag, "RHM publication échouée $topic", e); AppState.log(LogEntry.Kind.ERROR, "rhm", "Publication échouée $sub : ${e.message}") }
+        } else {
+            Log.w(tag, "RHM pas publié (broker non connecté) $topic")
+        }
+        if (sub == "result") {
+            queue += topic to payload
+            while (queue.size > 500) queue.removeAt(0)
+            saveQueue()
+            com.eis.qringmqtt.service.WifiSaver.requestWake()
+        }
     }
 
     private fun publishRaw(topic: String, payload: String, retained: Boolean, queueIfOffline: Boolean) {
@@ -325,6 +412,8 @@ class MqttManager(
             queue += topic to payload
             while (queue.size > 500) queue.removeAt(0)
             saveQueue()
+            // Wi-Fi en veille : on le rallume pour envoyer
+            com.eis.qringmqtt.service.WifiSaver.requestWake()
         }
     }
 

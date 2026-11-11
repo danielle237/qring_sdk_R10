@@ -1,0 +1,57 @@
+package com.eis.qringmqtt.service
+
+import com.eis.qringmqtt.ble.RingManager
+import com.eis.qringmqtt.data.AppState
+import com.eis.qringmqtt.data.LogEntry
+import com.eis.qringmqtt.mqtt.MqttManager
+import org.json.JSONObject
+
+/**
+ * Réglages envoyés par l'admin sur eis/colmi/gateway/<nom>/config (message retenu) :
+ *   {"pinEnabled":false, "gattMode":"ondemand", "wifiMode":"eco", "wifiWakeMin":10, "v":1731150000}
+ * Ils sont GARDÉS dans l'app (Prefs) : ils restent même après un redémarrage ou sans réseau.
+ * Installation neuve : connexion à la demande, sans PIN, Wi-Fi toujours actif.
+ * Réponse : gateway/<nom>/configAck {"status":"ok","cfg":{…}} + statut republié (champ « cfg »).
+ */
+object GatewayConfig {
+
+    fun apply(payload: String, mqtt: MqttManager?) {
+        val o = try { JSONObject(payload) } catch (_: Exception) { return }
+        val p = AppState.prefs
+        val changes = ArrayList<String>()
+        if (o.has("pinEnabled")) {
+            val v = o.optBoolean("pinEnabled", p.pinEnabled)
+            if (v != p.pinEnabled) { p.pinEnabled = v; changes += if (v) "PIN activé" else "PIN retiré" }
+        }
+        if (o.has("gattMode")) {
+            val v = if (o.optString("gattMode") == "ondemand") "ondemand" else "permanent"
+            if (v != p.gattMode) { RingManager.setGattMode(v); changes += "bague : $v" }
+        }
+        var wifiChanged = false
+        if (o.has("wifiWakeMin")) {
+            val v = o.optInt("wifiWakeMin", p.wifiWakeMin).coerceIn(2, 120)
+            if (v != p.wifiWakeMin) { p.wifiWakeMin = v; changes += "réveil Wi-Fi $v min" }
+        }
+        if (o.has("wifiMode")) {
+            val v = if (o.optString("wifiMode") == "eco") "eco" else "always"
+            if (v != p.wifiMode) { p.wifiMode = v; wifiChanged = true; changes += "Wi-Fi : $v" }
+        }
+        if (changes.isNotEmpty()) AppState.log(LogEntry.Kind.INFO, "admin", "Réglages reçus : " + changes.joinToString(", "))
+        mqtt?.publish("configAck", JSONObject().put("status", "ok").put("cfg", json())
+            .put("v", o.opt("v") ?: JSONObject.NULL).put("gateway", p.gatewayName)
+            .put("ts", System.currentTimeMillis() / 1000), LogEntry.Kind.OUT, viaGateway = true)
+        if (wifiChanged) WifiSaver.apply()
+        mqtt?.publishStatusNow(true)
+    }
+
+    /** Réglages en vigueur (dans chaque statut → l'admin voit ce qui est appliqué). */
+    fun json(): JSONObject {
+        val p = AppState.prefs
+        return JSONObject()
+            .put("pinEnabled", p.pinEnabled)
+            .put("gattMode", p.gattMode)
+            .put("wifiMode", p.wifiMode)
+            .put("wifiWakeMin", p.wifiWakeMin)
+            .put("net", WifiSaver.netType())
+    }
+}
